@@ -1,0 +1,123 @@
+<?xml version='1.0' encoding='utf-8'?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+  <channel>
+    <title>Agent HUD</title>
+    <item>
+      <title>0.6.0-beta.4</title>
+      <pubDate>Mon, 26 Oct 2026 18:43:22 +0800</pubDate>
+      <link>https://github.com/jazzenchen/agent-hud-open/releases/tag/v0.6.0-beta.4</link>
+      <sparkle:channel>beta</sparkle:channel>
+      <sparkle:minimumAutoupdateVersion>492</sparkle:minimumAutoupdateVersion>
+      <sparkle:version>492</sparkle:version>
+      <sparkle:shortVersionString>0.6.0-beta.4</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+      <description sparkle:format="markdown"># Agent HUD 0.6.0-beta.4
+
+## Compatibility
+
+**Requires Agent HUD for iPhone 1.7.2 or later** for iPhone and Apple Watch sync. Update the iPhone app before updating the Mac. Older iPhone versions cannot read this release's data.
+
+[Get the iPhone app](https://apps.apple.com/app/id6812113619).
+
+If the required iPhone version is not yet on the App Store, cross-device features require the corresponding TestFlight version.
+
+Requires an Apple Silicon Mac running macOS 14 or later.
+
+## Changes
+
+### Coming from 0.5.5
+
+- Includes everything in [0.6.0-beta.1](https://github.com/jazzenchen/agent-hud-open/releases/tag/v0.6.0-beta.1), which moves Agent HUD to a new cross-platform app and brings your settings and 30 days of quota history with it, and the changes in [0.6.0-beta.2](https://github.com/jazzenchen/agent-hud-open/releases/tag/v0.6.0-beta.2) and [0.6.0-beta.3](https://github.com/jazzenchen/agent-hud-open/releases/tag/v0.6.0-beta.3).
+
+### New
+
+- Supports Antigravity more fully: its sessions and conversations, hooks, questions and approvals, new sessions, Remote control and agent messaging.
+- Reads relays: add one by hand or let Agent HUD recognise it, then see its balance and prices with the key its client already uses. Each relay has its own settings page.
+- Adds a price page where you can correct what a model costs.
+- Records each call under the route it goes through, for Codex, Claude Code and Hermes; local routes cost nothing.
+- Prices Haiku 5.5, Gemini 4 Argon and Antigravity's effort variants.
+- Tags each session with where its first and latest prompts were typed, and shows them in the session's Statistics detail.
+- Shows the last 24 hours for agents with no quota window or balance.
+- Reads Cursor's sessions and tokens on this Mac, and Grok Bot's daily tokens per bot.
+- Queues Codex messages through the command line inside Codex.app or ChatGPT.app, and opens another client's Codex thread in the Codex app.
+- Lists each local-network iPhone's app version next to its name.
+- Checks which of your devices run an older Agent HUD. A Mac that is behind looks for the update at once, and Settings → Subscription marks every device that is behind.
+
+### Fixes
+
+- Lists sessions by their last message.
+- Sends iPhone and Apple Watch messages to Claude Code as your own words, and records the HUD's answers as sent from the Mac.
+- Keeps a client's settings file as it was when Agent HUD edits it, and no longer re-sorts `~/.claude.json`.
+- Says why Codex has no ChatGPT plan limits, and tells you to update Claude Code when it is too old for the plugin. Brings an installed Claude plugin up to date at launch.
+- Shows what priced calls cost when some calls have no list price.
+- Reads each log once for both its tokens and its conversation, looks at held logs every 3 seconds, and watches only the folders it reads.
+- Streams local-network changes to the iPhone as they happen.
+- Hides and orders panel rows by the keys layouts carry over.
+</description>
+      <enclosure url="https://github.com/jazzenchen/agent-hud-open/releases/download/v0.6.0-beta.4/Agent-HUD-0.6.0-beta.4-arm64.dmg" length="51582260" type="application/octet-stream" sparkle:edSignature="xMphu1ujGQHdl5qsAZ0r3kl+MwdieUbKGmw+/89YqDQXFtpWsKU8watNiogyyVaOBxg4+odOGZ+A11xOnP11Bw==" />
+      <agenthudMacOnly>false</agenthudMacOnly>
+      <agenthudMinimumIOSVersion>1.7.2</agenthudMinimumIOSVersion>
+    </item>
+    <item>
+      <title>0.5.5</title>
+      <pubDate>Sun, 18 Oct 2026 03:48:52 +0800</pubDate>
+      <link>https://github.com/jazzenchen/agent-hud-open/releases/tag/v0.5.5</link>
+      <sparkle:version>488</sparkle:version>
+      <sparkle:shortVersionString>0.5.5</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+      <description sparkle:format="markdown"># Agent HUD 0.5.5
+
+## Compatibility
+
+**Requires Agent HUD for iPhone 1.5 or later** for iPhone and Apple Watch sync. Update the iPhone app before updating the Mac. Older iPhone versions cannot read this release's data.
+
+[Get the iPhone app](https://apps.apple.com/app/id6812113619).
+
+Requires an Apple Silicon Mac running macOS 14 or later.
+
+## Changes
+
+### Quota names on every device
+
+- Keeps quota window names and short forms in English, so an English iPhone, widget or Apple Watch no longer receives Chinese names from a Mac using Chinese. Names update after the Mac reads and syncs the account again.
+
+### Docks and appearance
+
+- Keeps every logo visible on Simple and Dynamic docks while a reply or request opens beside the sending agent's logo.
+- Gives each display its own dark, light or system appearance, solid or glass material and transparency. Settings → General can match windows to their display's HUD as an experimental option.
+- Lets both dock sizes run from 20 to 60 pt, adds Simple panel logo spacing and uses one smaller text size for dock numbers, reminders and the hover line.
+- Makes the agents' bots act out thinking, tools, approvals, questions, plans, compaction, failures and usage limits. Claude's bot is Clawd.
+- Keeps the menu bar's figure, colours and agent order in step with the main display's HUD and its layout.
+
+### Arrange the HUD with an agent
+
+- Adds client checkmarks and add/remove actions for the MCP server in Settings → Experimental.
+- Names the tools `get_hud`, `get_hud_screenshot`, `draft_hud`, `discard_hud_draft` and `finish_hud_edit`. The server remains `agent-hud`; turn on the renamed HUD tools switch again to use it.
+- Lets an agent filter sessions by project and period, choose block accounts and row order, change panel switches and propose app settings as a draft for you to save.
+- Holds the panel open while an agent arranges it, then lets go when the edit finishes or you dismiss it.
+- Adds balance burn rates, estimated run-out times and cost charts to API balance blocks.
+
+### Sessions and other agents
+
+- Removes archived or deleted sessions from session lists while keeping their tokens in the usage totals until the ledger expires them.
+- Lets a session using a tool take over an agent's mark from one that is thinking.
+- Answers Claude Code plan approvals on the HUD, including accepting edits or returning feedback to keep planning.
+- Ends Claude Code turns promptly when their logs report a usage limit or API failure.
+- Keeps one provider order across Settings, the HUD, glow, menu bar and token statistics.
+- Shows WorkBuddy's model ceilings and credits, reads a GLM plan held only by WorkBuddy under that group and handles a CodeBuddy CLI using WorkBuddy's configuration as WorkBuddy.
+- Reduces artwork memory, repeated island layout and process inspection for clients that are not installed.
+
+### iPhone and Apple Watch sync
+
+- Sends Claude's narrations and questions to the phone, including questions answered through the Claude desktop app's next-step box.
+- Keeps published turn text once and improves local-network change tracking and conversation-cache recovery.
+- Ships the Mac executable stripped and the updater for Apple Silicon only, while keeping debugging symbols locally for crash reports.
+</description>
+      <enclosure url="https://github.com/jazzenchen/agent-hud-open/releases/download/v0.5.5/Agent-HUD-0.5.5-arm64.dmg" length="12185173" type="application/octet-stream" sparkle:edSignature="fk5ADjzBp1RQXJTK9VgF5T5fE2qoYYMgmIMp5rx/7IHIK0BmBmkBlHcsekF21yXINiBgN34DEBly4pVyoeiXCQ==" />
+      <agenthudMacOnly>false</agenthudMacOnly>
+      <agenthudMinimumIOSVersion>1.5</agenthudMinimumIOSVersion>
+    </item>
+  </channel>
+</rss>
