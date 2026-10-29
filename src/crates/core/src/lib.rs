@@ -162,7 +162,7 @@ impl AgentHudCore {
             .ok()
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or(Value::Null);
-        let mut settings = json!({"quotaDisplay":"consumed","codexHomes":[],"antigravityCliSettings":[],"appearance":"system","appearanceFollowsScreen":false,"language":"system","clientHooks":false,"codexDesktopQuestions":false,"readCopilotQuota":false,"approvalWaitMinutes":10,"launchAtLogin":true,"animations":true,"hudVisible":true,"hudPrimaryOnly":false,"showMenuBarIcon":true,"hudTools":false,"claudeAnswers":true,"relayReading":[],"customPrices":{},"relayMultipliers":{},"localKinds":{}});
+        let mut settings = json!({"quotaDisplay":"consumed","codexHomes":[],"antigravityCliSettings":[],"appearance":"system","appearanceFollowsScreen":false,"language":"system","clientHooks":false,"codexDesktopQuestions":false,"readCopilotQuota":false,"approvalWaitMinutes":10,"launchAtLogin":true,"animations":true,"hudVisible":true,"hudPrimaryOnly":false,"hudScreenId":"","showMenuBarIcon":true,"hudTools":false,"claudeAnswers":true,"relayReading":[],"customPrices":{},"relayMultipliers":{},"localKinds":{}});
         if let Some(values) = stored["settings"].as_object() {
             for (key, value) in values {
                 if settings.get(key).is_some() {
