@@ -47,7 +47,7 @@ export class EngineClient {
     const child = spawn(
       this.binary,
       this.mode === "app" ? ["--app-channel"] : [],
-      { stdio: ["pipe", "pipe", "pipe"] },
+      { stdio: ["pipe", "pipe", "pipe"], windowsHide: true },
     );
     this.child = child;
     this.buffer = "";
@@ -122,7 +122,7 @@ export class EngineClient {
   }
   close() {
     this.fail("Engine client closed.");
-    this.child?.kill();
+    this.child?.stdin.end();
     this.child = undefined;
   }
 }
