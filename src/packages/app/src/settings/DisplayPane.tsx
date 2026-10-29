@@ -1,11 +1,5 @@
 import { useRef, useState } from "react";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@agent-hud/ui/components/select";
+import { Button } from "@agent-hud/ui/components/button";
 import { TooltipProvider } from "@agent-hud/ui/components/tooltip";
 import { defaultHUDConfig, type HUDConfig } from "@agent-hud/hud/model";
 import type { NativeHUDMonitor } from "../lib/use-hud-geometry";
@@ -73,7 +67,6 @@ export function DisplayPane({
   config: supplied,
   update,
   monitors = [],
-  selectedScreenId,
   onSelectScreen,
 }: SettingsPaneProps & {
   monitors?: NativeHUDMonitor[];
@@ -85,6 +78,30 @@ export function DisplayPane({
   const previousStyle = useRef<Partial<HUDConfig> | null>(null);
   const previousLayout = useRef<Partial<HUDConfig> | null>(null);
   const [revision, setRevision] = useState(0);
+  const [placementPending, setPlacementPending] = useState(false);
+  const [placementError, setPlacementError] = useState<string | null>(null);
+  const shownScreen = monitors.some(
+    (monitor) => monitor.screenId === snapshot.settings.hudScreenId,
+  )
+    ? snapshot.settings.hudScreenId
+    : snapshot.settings.hudScreenId || snapshot.settings.hudPrimaryOnly
+      ? (monitors.find((monitor) => monitor.primary) ?? monitors[0])?.screenId
+      : undefined;
+  const moveHUD = async (target: string) => {
+    if (placementPending) return;
+    setPlacementPending(true);
+    setPlacementError(null);
+    try {
+      await action("set_setting", { key: "hudScreenId", value: target });
+      onSelectScreen(target);
+    } catch (failure) {
+      setPlacementError(
+        failure instanceof Error ? failure.message : String(failure),
+      );
+    } finally {
+      setPlacementPending(false);
+    }
+  };
   const change = <K extends keyof HUDConfig>(key: K, value: HUDConfig[K]) =>
     update({ [key]: value });
   const resetStyle = () => {
@@ -202,32 +219,47 @@ export function DisplayPane({
           title={t("Screens", "屏幕")}
           subtitle={t("Set each display on its own.", "每块屏幕单独设置。")}
         >
-          {monitors.length > 1 && (
-            <>
-              <Row title={t("Display", "显示器")}>
-                <Select value={selectedScreenId} onValueChange={onSelectScreen}>
-                  <SelectTrigger
-                    aria-label={t("Display", "显示器")}
-                    style={{ width: 200 }}
+          <Row
+            title={t("Display", "显示器")}
+            subtitle={t(
+              "Switch the HUD and edit this screen’s appearance.",
+              "点击切换悬浮窗，同时编辑该屏幕的样式。",
+            )}
+          >
+            <div
+              role="group"
+              aria-label={t("Switch HUD display", "切换 HUD 显示器")}
+              style={{ display: "flex", gap: 6, flexWrap: "wrap" }}
+            >
+              {monitors.map((monitor) => {
+                const selected = shownScreen === monitor.screenId;
+                return (
+                  <Button
+                    key={monitor.screenId}
+                    size="sm"
+                    variant={selected ? "default" : "outline"}
+                    aria-pressed={Boolean(selected)}
+                    disabled={placementPending}
+                    onClick={() => {
+                      void moveHUD(monitor.screenId);
+                    }}
                   >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {monitors.map((monitor) => (
-                      <SelectItem
-                        key={monitor.screenId}
-                        value={monitor.screenId}
-                      >
-                        {monitor.name ||
-                          `${t("Display", "显示器")} ${monitor.index + 1}`}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Row>
-              <Divider />
-            </>
+                    {monitor.name ||
+                      `${t("Display", "显示器")} ${monitor.index + 1}`}
+                  </Button>
+                );
+              })}
+            </div>
+          </Row>
+          {placementError && (
+            <p
+              role="alert"
+              style={{ color: "var(--destructive)", padding: "0 16px" }}
+            >
+              {placementError}
+            </p>
           )}
+          <Divider />
           <Row title={t("HUD", "HUD 形态")} subtitle={modeSubtitle}>
             <Segments
               label="HUD"

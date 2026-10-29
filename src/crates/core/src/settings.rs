@@ -130,6 +130,10 @@ impl crate::AgentHudCore {
                     })
                 }) => {}
             "language" if value.as_str().is_some_and(|s| s.len() <= 32) => {}
+            "hudScreenId"
+                if value
+                    .as_str()
+                    .is_some_and(|id| id.len() <= 1024 && !id.contains('\0')) => {}
             "animations"
             | "showMenuBarIcon"
             | "appearanceFollowsScreen"

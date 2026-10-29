@@ -498,6 +498,8 @@ export interface AppSettings {
   language: string;
   clientHooks: boolean;
   hudPrimaryOnly?: boolean;
+  /** Persistent display identity for a manually selected single HUD. Empty preserves multi-display mode. */
+  hudScreenId?: string;
   /** Answer Codex Desktop questions through its native IPC, without installing hooks. */
   codexDesktopQuestions?: boolean;
   readCopilotQuota?: boolean;

@@ -231,6 +231,30 @@ pub(crate) struct Planner {
     configured: HashMap<String, String>,
 }
 
+fn display_visible(monitor: &HudMonitor, settings: &Value, selected: Option<&str>) -> bool {
+    settings["hudVisible"] != false
+        && if selected.is_some() {
+            selected == Some(monitor.screen_id.as_str())
+        } else {
+            settings["hudPrimaryOnly"] != true || monitor.primary
+        }
+}
+
+fn selected_screen<'a>(
+    monitors: impl Iterator<Item = &'a HudMonitor> + Clone,
+    settings: &Value,
+) -> Option<&'a str> {
+    let requested = settings["hudScreenId"]
+        .as_str()
+        .filter(|id| !id.is_empty())?;
+    monitors
+        .clone()
+        .find(|monitor| monitor.screen_id == requested)
+        .or_else(|| monitors.clone().find(|monitor| monitor.primary))
+        .or_else(|| monitors.clone().next())
+        .map(|monitor| monitor.screen_id.as_str())
+}
+
 impl Planner {
     /// Measures the displays again; returns them when they changed. The owners
     /// of disconnected screens are ended first.
@@ -293,15 +317,19 @@ impl Planner {
         snapshot: Option<&Value>,
         now_ms: i64,
     ) {
-        let visible = snapshot.is_none_or(|snapshot| snapshot["settings"]["hudVisible"] != false);
+        let settings = snapshot
+            .map(|snapshot| &snapshot["settings"])
+            .unwrap_or(&Value::Null);
+        let selected = selected_screen(
+            self.displays.iter().map(|display| &display.info),
+            settings,
+        );
         for display in &self.displays {
-            let primary_only =
-                snapshot.is_some_and(|snapshot| snapshot["settings"]["hudPrimaryOnly"] == true);
             let config = plan(
                 display,
                 view,
                 snapshot,
-                visible && (!primary_only || display.info.primary),
+                display_visible(&display.info, settings, selected),
                 now_ms,
             );
             let id = display.info.screen_id.clone();
@@ -326,6 +354,59 @@ impl Planner {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn monitor(id: &str, x: i32, y: i32, width: u32, height: u32, primary: bool) -> HudMonitor {
+        let bounds = super::super::Rect {
+            x,
+            y,
+            width,
+            height,
+        };
+        HudMonitor {
+            screen_id: id.into(),
+            window_label: id.into(),
+            index: 0,
+            runtime_id: id.into(),
+            persistent_id: None,
+            name: None,
+            primary,
+            bounds,
+            work_area: bounds,
+            scale_factor: 1.0,
+            notch: None,
+            notch_coordinate_space: "global-logical-top-left",
+        }
+    }
+
+    #[test]
+    fn manual_display_choice_is_single_and_falls_back_when_unplugged() {
+        let monitors = [
+            monitor("main", 0, 0, 1920, 1080, true),
+            monitor("left", -2560, 0, 2560, 1440, false),
+        ];
+        let mut settings = json!({"hudScreenId":"left","hudPrimaryOnly":true});
+        assert_eq!(selected_screen(monitors.iter(), &settings), Some("left"));
+        let selected = selected_screen(monitors.iter(), &settings);
+        assert_eq!(
+            monitors
+                .iter()
+                .filter(|monitor| display_visible(monitor, &settings, selected))
+                .count(),
+            1
+        );
+        assert_eq!(selected_screen(monitors[..1].iter(), &settings), Some("main"));
+        settings["hudScreenId"] = json!("main");
+        assert_eq!(selected_screen(monitors.iter(), &settings), Some("main"));
+        settings["hudVisible"] = json!(false);
+        assert!(monitors
+            .iter()
+            .all(|monitor| !display_visible(monitor, &settings, Some("main"))));
+        settings["hudScreenId"] = json!("");
+        assert_eq!(selected_screen(monitors.iter(), &settings), None);
+        settings["hudScreenId"] = json!("missing");
+        assert_eq!(selected_screen(monitors[1..].iter(), &settings), Some("left"));
+        assert_eq!(selected_screen(std::iter::empty(), &settings), None);
+    }
 
     fn view(screen: Value, layout: Value) -> Value {
         json!({"store": {"screens": {"a": screen}, "screenDefaults": {}}, "layouts": {"a": layout}, "sharedLayout": {}})
