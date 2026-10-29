@@ -17,6 +17,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::windows::named_pipe::{ClientOptions, NamedPipeClient},
     runtime::Runtime,
+    sync::watch,
 };
 use windows_sys::Win32::{
     Foundation::{ERROR_PIPE_BUSY, HANDLE},
@@ -52,11 +53,22 @@ pub(super) fn random(bytes: &mut [u8]) -> io::Result<()> {
     Ok(())
 }
 
+/// Sticky cancellation wakes current operations and rejects later ones as well.
+pub struct ShutdownHandle(watch::Sender<bool>);
+impl ShutdownHandle {
+    pub fn shutdown(&self) -> io::Result<()> {
+        self.0.send_replace(true);
+        Ok(())
+    }
+}
+
 /// A same-user pipe with one deadline across connection, reads and writes.
 pub struct LocalSocket {
     pipe: NamedPipeClient,
     runtime: Runtime,
     deadline: Instant,
+    shutdown: ShutdownHandle,
+    cancelled: watch::Receiver<bool>,
 }
 
 impl LocalSocket {
@@ -89,11 +101,18 @@ impl LocalSocket {
             }
         })?;
         validate_server(pipe.as_raw_handle())?;
+        let (shutdown, cancelled) = watch::channel(false);
         Ok(Self {
             pipe,
             runtime,
             deadline,
+            shutdown: ShutdownHandle(shutdown),
+            cancelled,
         })
+    }
+
+    pub fn shutdown_handle(&self) -> Result<ShutdownHandle, IpcError> {
+        Ok(ShutdownHandle(self.shutdown.0.clone()))
     }
 
     pub fn renew(&mut self, timeout: Duration) {
@@ -105,10 +124,15 @@ impl LocalSocket {
     }
 
     pub fn wait_for_message(&self, timeout: Duration) -> Result<bool, IpcError> {
+        let mut cancelled = self.cancelled.clone();
         self.runtime.block_on(async {
-            match tokio::time::timeout(timeout, self.pipe.readable()).await {
-                Ok(result) => result.map(|_| true).map_err(IpcError::from),
-                Err(_) => Ok(false),
+            tokio::select! {
+                biased;
+                _ = cancelled.wait_for(|cancelled| *cancelled) => Err(IpcError::Unavailable),
+                result = tokio::time::timeout(timeout, self.pipe.readable()) => match result {
+                    Ok(result) => result.map(|_| true).map_err(IpcError::from),
+                    Err(_) => Ok(false),
+                },
             }
         })
     }
@@ -120,10 +144,15 @@ impl Read for LocalSocket {
         if remaining.is_zero() {
             return Err(io::ErrorKind::TimedOut.into());
         }
+        let mut cancelled = self.cancelled.clone();
         self.runtime.block_on(async {
-            tokio::time::timeout(remaining, self.pipe.read(bytes))
-                .await
-                .map_err(|_| io::Error::from(io::ErrorKind::TimedOut))?
+            tokio::select! {
+                biased;
+                _ = cancelled.wait_for(|cancelled| *cancelled) => Err(io::ErrorKind::ConnectionAborted.into()),
+                result = tokio::time::timeout(remaining, self.pipe.read(bytes)) => {
+                    result.map_err(|_| io::Error::from(io::ErrorKind::TimedOut))?
+                },
+            }
         })
     }
 }
@@ -134,10 +163,15 @@ impl Write for LocalSocket {
         if remaining.is_zero() {
             return Err(io::ErrorKind::TimedOut.into());
         }
+        let mut cancelled = self.cancelled.clone();
         self.runtime.block_on(async {
-            tokio::time::timeout(remaining, self.pipe.write(bytes))
-                .await
-                .map_err(|_| io::Error::from(io::ErrorKind::TimedOut))?
+            tokio::select! {
+                biased;
+                _ = cancelled.wait_for(|cancelled| *cancelled) => Err(io::ErrorKind::ConnectionAborted.into()),
+                result = tokio::time::timeout(remaining, self.pipe.write(bytes)) => {
+                    result.map_err(|_| io::Error::from(io::ErrorKind::TimedOut))?
+                },
+            }
         })
     }
 

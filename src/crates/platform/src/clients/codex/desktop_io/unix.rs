@@ -1,8 +1,9 @@
 //! Same-user Unix socket and mapped snapshot storage for Codex Desktop IPC.
-use super::{DesktopIpc, IpcError};
+use super::IpcError;
 use std::{
     fs,
     io::{self, Read, Write},
+    net::Shutdown,
     os::{
         fd::{AsRawFd, FromRawFd},
         unix::{
@@ -22,9 +23,11 @@ pub(super) fn random(bytes: &mut [u8]) -> io::Result<()> {
     fs::File::open("/dev/urandom")?.read_exact(bytes)
 }
 
-impl DesktopIpc {
-    pub fn shutdown_handle(&self) -> Result<UnixStream, IpcError> {
-        Ok(self.socket.stream.try_clone()?)
+/// A separate stream handle so another thread can interrupt pending operations.
+pub struct ShutdownHandle(UnixStream);
+impl ShutdownHandle {
+    pub fn shutdown(&self) -> io::Result<()> {
+        self.0.shutdown(Shutdown::Both)
     }
 }
 
@@ -35,6 +38,9 @@ pub struct LocalSocket {
     deadline: Instant,
 }
 impl LocalSocket {
+    pub fn shutdown_handle(&self) -> Result<ShutdownHandle, IpcError> {
+        Ok(ShutdownHandle(self.stream.try_clone()?))
+    }
     pub fn connect(path: &Path, timeout: Duration) -> Result<Self, IpcError> {
         use std::os::unix::ffi::OsStrExt;
         if timeout.is_zero() {
