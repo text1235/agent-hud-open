@@ -293,7 +293,10 @@ fn readiness_after_an_exact_frame_read_does_not_block_the_answer_loop() {
     });
     let mut connection = DesktopIpc::connect(&path, Duration::from_secs(3)).unwrap();
     assert_eq!(connection.receive().unwrap(), json!({"ready":true}));
-    assert_eq!(connection.wait_for_message(Duration::from_millis(50)), Ok(false));
+    assert_eq!(
+        connection.wait_for_message(Duration::from_millis(50)),
+        Ok(false)
+    );
     release.send(()).unwrap();
     drop(connection);
     server.join().unwrap();
@@ -313,10 +316,18 @@ fn cancellation_interrupts_continuous_writes_without_a_reader() {
         let payload = json!({"payload":"x".repeat(1024 * 1024)});
         let mut first = true;
         loop {
-            let result = connection.post_with_write(payload.clone(), Some(&mut || {
-                if first { wrote.send(()).unwrap(); first = false; }
-            }));
-            if result.is_err() { break result; }
+            let result = connection.post_with_write(
+                payload.clone(),
+                Some(&mut || {
+                    if first {
+                        wrote.send(()).unwrap();
+                        first = false;
+                    }
+                }),
+            );
+            if result.is_err() {
+                break result;
+            }
         }
     });
     waiting.recv_timeout(Duration::from_secs(3)).unwrap();

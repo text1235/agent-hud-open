@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod workbench;
 mod auto_dispatch;
+mod workbench;
 
 fn main() {
     let demo = std::env::args().any(|arg| matches!(arg.as_str(), "--demo" | "--demo-script"));

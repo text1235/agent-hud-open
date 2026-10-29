@@ -73,21 +73,36 @@ fn instructions(root: &Path) -> String {
 }
 
 fn unique() -> String {
-    format!("{}-{}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos(), std::process::id())
+    format!(
+        "{}-{}",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos(),
+        std::process::id()
+    )
 }
 
 fn backup(own: &Path, original: &str) -> Result<(), String> {
     let folder = own.join("backup");
     local(&folder)?;
     fs::create_dir_all(&folder).map_err(|error| error.to_string())?;
-    let mut file = OpenOptions::new().write(true).create_new(true).open(folder.join(format!("AGENTS-{}.md", unique()))).map_err(|error| error.to_string())?;
-    file.write_all(original.as_bytes()).map_err(|error| error.to_string())
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(folder.join(format!("AGENTS-{}.md", unique())))
+        .map_err(|error| error.to_string())?;
+    file.write_all(original.as_bytes())
+        .map_err(|error| error.to_string())
 }
 
 fn write(path: &Path, text: &str) -> Result<(), String> {
     let temporary = path.with_extension(format!("agent-hud-{}.tmp", unique()));
     let result = (|| {
-        let mut file = OpenOptions::new().write(true).create_new(true).open(&temporary)?;
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)?;
         file.write_all(text.as_bytes())?;
         drop(file);
         fs::rename(&temporary, path)

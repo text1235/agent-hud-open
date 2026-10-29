@@ -264,7 +264,12 @@ impl Shared {
         if !self.active.load(Ordering::Acquire) {
             return;
         }
-        if current_only && !state.known.get(thread).is_some_and(|known| known.owner == owner && known.state == state_value) {
+        if current_only
+            && !state
+                .known
+                .get(thread)
+                .is_some_and(|known| known.owner == owner && known.state == state_value)
+        {
             return;
         }
         if let Ok(turns) = pending::turns(&state_value, true) {
@@ -445,7 +450,9 @@ impl Shared {
         let mut connection = DesktopIpc::connect(&self.endpoint, Duration::from_secs(3))?;
         {
             let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
-            if !self.active.load(Ordering::Acquire) || (item.question.is_none() && self.questions_only.load(Ordering::Acquire)) {
+            if !self.active.load(Ordering::Acquire)
+                || (item.question.is_none() && self.questions_only.load(Ordering::Acquire))
+            {
                 return Err(ReplyFailure::Cancelled);
             }
             state
