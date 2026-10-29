@@ -26,7 +26,7 @@ use windows_sys::Win32::{
         EqualSid, GetTokenInformation, TokenUser, TOKEN_QUERY, TOKEN_USER,
     },
     System::{
-        Pipes::GetNamedPipeServerProcessId,
+        Pipes::{GetNamedPipeServerProcessId, PeekNamedPipe},
         Threading::{
             GetCurrentProcess, OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION,
         },
@@ -129,8 +129,19 @@ impl LocalSocket {
             tokio::select! {
                 biased;
                 _ = cancelled.wait_for(|cancelled| *cancelled) => Err(IpcError::Unavailable),
-                result = tokio::time::timeout(timeout, self.pipe.readable()) => match result {
-                    Ok(result) => result.map(|_| true).map_err(IpcError::from),
+                result = tokio::time::timeout(timeout, async {
+                    loop {
+                        let mut available = 0;
+                        // Tokio readiness can remain cached after an exact frame
+                        // read. Query the pipe without consuming another frame.
+                        if unsafe { PeekNamedPipe(self.pipe.as_raw_handle(), std::ptr::null_mut(), 0, std::ptr::null_mut(), &mut available, std::ptr::null_mut()) } == 0 {
+                            return Err(io::Error::last_os_error());
+                        }
+                        if available > 0 { return Ok(true); }
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                }) => match result {
+                    Ok(result) => result.map_err(IpcError::from),
                     Err(_) => Ok(false),
                 },
             }

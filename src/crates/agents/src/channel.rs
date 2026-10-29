@@ -48,6 +48,6 @@ mod tests {
             }
         }
         let codex = crate::codex::AGENT.channel.unwrap();
-        assert!(!codex.runs_on(Os::Windows) && codex.runs_on(Os::Linux));
+        assert!(codex.runs_on(Os::Windows) && codex.runs_on(Os::Linux));
     }
 }
