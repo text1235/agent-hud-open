@@ -93,9 +93,11 @@ impl CodexDesktopObserver {
         self.shared.questions_only.store(enabled, Ordering::Release);
         let states = {
             let state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
-            state.known.iter().map(|(id, known)|
-                (id.clone(), known.owner.clone(), known.state.clone())
-            ).collect::<Vec<_>>()
+            state
+                .known
+                .iter()
+                .map(|(id, known)| (id.clone(), known.owner.clone(), known.state.clone()))
+                .collect::<Vec<_>>()
         };
         for (id, owner, state) in states {
             self.shared.reconcile(&id, &owner, state);
@@ -425,8 +427,7 @@ impl Shared {
         if response.is_null() {
             return Err(ReplyFailure::Cancelled);
         }
-        let mut connection =
-            DesktopIpc::connect(&self.endpoint, Duration::from_secs(3))?;
+        let mut connection = DesktopIpc::connect(&self.endpoint, Duration::from_secs(3))?;
         {
             let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
             if !self.active.load(Ordering::Acquire) {

@@ -1,12 +1,20 @@
 use super::*;
-use std::{io::{Read, Write}, net::TcpListener, sync::atomic::{AtomicU64, Ordering}};
+use std::{
+    io::{Read, Write},
+    net::TcpListener,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
 
 struct Scratch(PathBuf);
 impl Scratch {
     fn new() -> Self {
-        let path = std::env::temp_dir().join(format!("agent-hud-workbench-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+        let path = std::env::temp_dir().join(format!(
+            "agent-hud-workbench-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
         fs::create_dir_all(path.join("state")).unwrap();
         Self(path)
     }
@@ -19,19 +27,25 @@ impl Drop for Scratch {
 
 #[test]
 fn state_is_scoped_by_exact_project_path_or_gateway_project_id() {
-    let state = scoped_state(&json!({
-        "projects":[{"id":"selected","path":"z:\\Agent HUD"},{"id":"other","path":"Z:\\Research"}],
-        "tasks":[
-            {"id":"h","executor":"hermes","project":"selected"},
-            {"id":"a","executor":"antigravity","project_root":"Z:/Agent HUD/","workspace":"Z:/Agent HUD/协作办公区/Antigravity/id"},
-            {"id":"not-a-child","project_root":"Z:/Agent HUD copy"},
-            {"id":"other","project":"other"}
-        ]
-    }), Path::new("Z:/Agent HUD"));
+    let state = scoped_state(
+        &json!({
+            "projects":[{"id":"selected","path":"z:\\Agent HUD"},{"id":"other","path":"Z:\\Research"}],
+            "tasks":[
+                {"id":"h","executor":"hermes","project":"selected"},
+                {"id":"a","executor":"antigravity","project_root":"Z:/Agent HUD/","workspace":"Z:/Agent HUD/协作办公区/Antigravity/id"},
+                {"id":"not-a-child","project_root":"Z:/Agent HUD copy"},
+                {"id":"other","project":"other"}
+            ]
+        }),
+        Path::new("Z:/Agent HUD"),
+    );
     assert_eq!(state["tasks"].as_array().unwrap().len(), 2);
     assert_eq!(state["projects"].as_array().unwrap().len(), 1);
     assert_eq!(path_key(r"\\?\Z:\Agent HUD"), path_key("z:/agent hud"));
-    assert_eq!(path_key(r"\\?\UNC\server\share"), path_key(r"\\server\share"));
+    assert_eq!(
+        path_key(r"\\?\UNC\server\share"),
+        path_key(r"\\server\share")
+    );
 }
 
 #[test]
@@ -60,7 +74,10 @@ fn flights_describe_real_new_dispatch_delivery_and_failure_only_once() {
 #[test]
 fn antigravity_submission_uses_the_selected_root_fixed_model_and_idempotency_key() {
     let scratch = Scratch::new();
-    let selected = Connection { root: scratch.0.clone(), workbench: scratch.0.clone() };
+    let selected = Connection {
+        root: scratch.0.clone(),
+        workbench: scratch.0.clone(),
+    };
     let input = json!({"executor":"antigravity","objective":"test","boundary":"only this task","acceptance":"verified output","request_key":"hud-test-1","workspace":"other-project","model":"other-model"});
     let arguments = submission(&selected, &input).unwrap();
     assert_eq!(arguments["workspace"], json!(selected.root));
@@ -75,13 +92,22 @@ fn antigravity_submission_uses_the_selected_root_fixed_model_and_idempotency_key
 #[test]
 fn http_adapter_reads_local_authorization_and_does_not_forward_it_to_the_ui() {
     let scratch = Scratch::new();
-    fs::write(scratch.0.join("state/access.token"), "test-only-authorization").unwrap();
-    let selected = Connection { root: scratch.0.clone(), workbench: scratch.0.clone() };
+    fs::write(
+        scratch.0.join("state/access.token"),
+        "test-only-authorization",
+    )
+    .unwrap();
+    let selected = Connection {
+        root: scratch.0.clone(),
+        workbench: scratch.0.clone(),
+    };
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let endpoint = format!("http://{}/api", listener.local_addr().unwrap());
     let worker = thread::spawn(move || {
         let (mut stream, _) = listener.accept().unwrap();
-        stream.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
         let mut bytes = Vec::new();
         let mut buffer = [0; 1024];
         let (header_length, content_length) = loop {
@@ -90,8 +116,17 @@ fn http_adapter_reads_local_authorization_and_does_not_forward_it_to_the_ui() {
             bytes.extend_from_slice(&buffer[..read]);
             if let Some(position) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
                 let headers = String::from_utf8_lossy(&bytes[..position]);
-                assert!(headers.to_lowercase().contains("authorization: bearer test-only-authorization"));
-                let length: usize = headers.lines().find_map(|line| line.to_lowercase().strip_prefix("content-length:").map(|n| n.trim().parse().unwrap())).unwrap();
+                assert!(headers
+                    .to_lowercase()
+                    .contains("authorization: bearer test-only-authorization"));
+                let length: usize = headers
+                    .lines()
+                    .find_map(|line| {
+                        line.to_lowercase()
+                            .strip_prefix("content-length:")
+                            .map(|n| n.trim().parse().unwrap())
+                    })
+                    .unwrap();
                 break (position + 4, length);
             }
         };
@@ -100,7 +135,8 @@ fn http_adapter_reads_local_authorization_and_does_not_forward_it_to_the_ui() {
             assert!(read > 0);
             bytes.extend_from_slice(&buffer[..read]);
         }
-        let request: Value = serde_json::from_slice(&bytes[header_length..header_length + content_length]).unwrap();
+        let request: Value =
+            serde_json::from_slice(&bytes[header_length..header_length + content_length]).unwrap();
         assert_eq!(request, json!({"name":"state","arguments":{}}));
         let response = r#"{"result":{"tasks":[],"projects":[],"executors":[]}}"#;
         write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}", response.len()).unwrap();

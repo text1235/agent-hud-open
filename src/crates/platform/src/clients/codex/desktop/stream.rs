@@ -17,9 +17,7 @@ pub(super) fn work(shared: Arc<Shared>) {
             continue;
         }
         let began = Instant::now();
-        if let Ok(mut connection) =
-            DesktopIpc::connect(&shared.endpoint, Duration::from_secs(5))
-        {
+        if let Ok(mut connection) = DesktopIpc::connect(&shared.endpoint, Duration::from_secs(5)) {
             if let Ok(handle) = connection.shutdown_handle() {
                 shared
                     .state
