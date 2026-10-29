@@ -231,13 +231,15 @@ fn receipt_matches_the_desktop_router_envelope_and_exact_question_turn() {
 #[test]
 fn approval_receipt_requires_an_explicit_success_from_the_same_owner_and_method() {
     let state = snapshot(vec![permission("computer-use", json!(["session"]))]);
-    let item = pending::parse(&state, THREAD, "owner")
-        .unwrap()
-        .remove(0);
+    let item = pending::parse(&state, THREAD, "owner").unwrap().remove(0);
     let method = pending::ELICITATION_METHOD;
     let receipt = json!({"method":method,"handledByClientId":"owner","result":{"ok":true}});
     assert!(confirm_receipt(&item, method, &receipt).is_ok());
-    for result in [json!({"ok":false}), json!({}), json!({"result":{"ok":true}})] {
+    for result in [
+        json!({"ok":false}),
+        json!({}),
+        json!({"result":{"ok":true}}),
+    ] {
         let mut wrong = receipt.clone();
         wrong["result"] = result;
         assert!(matches!(

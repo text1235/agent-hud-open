@@ -320,10 +320,7 @@ impl Planner {
         let settings = snapshot
             .map(|snapshot| &snapshot["settings"])
             .unwrap_or(&Value::Null);
-        let selected = selected_screen(
-            self.displays.iter().map(|display| &display.info),
-            settings,
-        );
+        let selected = selected_screen(self.displays.iter().map(|display| &display.info), settings);
         for display in &self.displays {
             let config = plan(
                 display,
@@ -394,7 +391,10 @@ mod tests {
                 .count(),
             1
         );
-        assert_eq!(selected_screen(monitors[..1].iter(), &settings), Some("main"));
+        assert_eq!(
+            selected_screen(monitors[..1].iter(), &settings),
+            Some("main")
+        );
         settings["hudScreenId"] = json!("main");
         assert_eq!(selected_screen(monitors.iter(), &settings), Some("main"));
         settings["hudVisible"] = json!(false);
@@ -404,7 +404,10 @@ mod tests {
         settings["hudScreenId"] = json!("");
         assert_eq!(selected_screen(monitors.iter(), &settings), None);
         settings["hudScreenId"] = json!("missing");
-        assert_eq!(selected_screen(monitors[1..].iter(), &settings), Some("left"));
+        assert_eq!(
+            selected_screen(monitors[1..].iter(), &settings),
+            Some("left")
+        );
         assert_eq!(selected_screen(std::iter::empty(), &settings), None);
     }
 
