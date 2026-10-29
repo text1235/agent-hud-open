@@ -535,29 +535,36 @@ impl Shared {
                     }
                 }
             })?;
-        if receipt["handledByClientId"] != item.owner || receipt["result"]["method"] != method {
-            return Err(ReplyFailure::Uncertain(l10n::text(
-                "Codex Desktop 的回复与请求不匹配",
-                "Desktop reply identity did not match",
-            )));
-        }
-        if method == pending::ELICITATION_METHOD {
-            if receipt["result"]["result"]["ok"] != true {
-                return Err(ReplyFailure::Uncertain(l10n::text(
-                    "Codex Desktop 没有确认这个审批",
-                    "Desktop did not confirm this approval",
-                )));
-            }
-        } else if receipt["result"]["result"]["result"]["turnId"]
-            != item.turn_id.as_deref().unwrap_or("")
-        {
-            return Err(ReplyFailure::Uncertain(l10n::text(
-                "Codex Desktop 没有确认对应的提问轮次",
-                "Desktop did not confirm the exact question turn",
-            )));
-        }
-        Ok(())
+        confirm_receipt(item, method, &receipt)
     }
+}
+
+fn confirm_receipt(item: &Pending, method: &str, receipt: &Value) -> Result<(), ReplyFailure> {
+    // The router stamps method/owner on the response envelope. The Desktop
+    // follower handler has already checked its inner method and unwrapped
+    // that inner response before the router returns it to this connection.
+    if receipt["handledByClientId"] != item.owner || receipt["method"] != method {
+        return Err(ReplyFailure::Uncertain(l10n::text(
+            "Codex Desktop 的回复与请求不匹配",
+            "Desktop reply identity did not match",
+        )));
+    }
+    if method == pending::ELICITATION_METHOD {
+        if receipt["result"]["ok"] != true {
+            return Err(ReplyFailure::Uncertain(l10n::text(
+                "Codex Desktop 没有确认这个审批",
+                "Desktop did not confirm this approval",
+            )));
+        }
+    } else if item.turn_id.as_deref().is_none_or(str::is_empty)
+        || receipt["result"]["result"]["turnId"] != item.turn_id.as_deref().unwrap_or("")
+    {
+        return Err(ReplyFailure::Uncertain(l10n::text(
+            "Codex Desktop 没有确认对应的提问轮次",
+            "Desktop did not confirm the exact question turn",
+        )));
+    }
+    Ok(())
 }
 enum ReplyFailure {
     Failed(String),

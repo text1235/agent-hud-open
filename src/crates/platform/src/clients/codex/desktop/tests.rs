@@ -187,3 +187,62 @@ fn questions_only_does_not_expose_approval_cards() {
     assert!(requests.views(crate::hooks::now_ms()).is_empty());
     observer.stop();
 }
+
+#[test]
+fn receipt_matches_the_desktop_router_envelope_and_exact_question_turn() {
+    let mut state = snapshot(vec![]);
+    state["turnHistory"] = json!({"kind":"canonical","history":{"islands":[{"entries":[{"value":"key"}]}],"entitiesByKey":{"key":{"turnId":"turn-fixture","status":"inProgress","items":[{"type":"agentMessage","id":"message","questions":[{"title":"Pick one","options":["First","Second"]}]}]}}}});
+    let item = pending::parse(&state, THREAD, "owner").unwrap().remove(0);
+    let method = "thread-follower-steer-turn";
+    let receipt = json!({"type":"response","requestId":"correlated-in-transport","resultType":"success","method":method,"handledByClientId":"owner","result":{"result":{"turnId":"turn-fixture"}}});
+    assert!(confirm_receipt(&item, method, &receipt).is_ok());
+    for (field, value) in [
+        ("handledByClientId", "other-owner"),
+        ("method", "other-method"),
+    ] {
+        let mut wrong = receipt.clone();
+        wrong[field] = json!(value);
+        assert!(matches!(
+            confirm_receipt(&item, method, &wrong),
+            Err(ReplyFailure::Uncertain(_))
+        ));
+    }
+    for turn in [json!("another-turn"), json!(""), Value::Null] {
+        let mut wrong = receipt.clone();
+        wrong["result"]["result"]["turnId"] = turn;
+        assert!(matches!(
+            confirm_receipt(&item, method, &wrong),
+            Err(ReplyFailure::Uncertain(_))
+        ));
+    }
+    let invented_nested_envelope = json!({"handledByClientId":"owner","result":{"method":method,"result":{"result":{"turnId":"turn-fixture"}}}});
+    assert!(matches!(
+        confirm_receipt(&item, method, &invented_nested_envelope),
+        Err(ReplyFailure::Uncertain(_))
+    ));
+    let mut missing_expected_turn = item;
+    missing_expected_turn.turn_id = None;
+    assert!(matches!(
+        confirm_receipt(&missing_expected_turn, method, &receipt),
+        Err(ReplyFailure::Uncertain(_))
+    ));
+}
+
+#[test]
+fn approval_receipt_requires_an_explicit_success_from_the_same_owner_and_method() {
+    let state = snapshot(vec![permission("computer-use", json!(["session"]))]);
+    let item = pending::parse(&state, THREAD, "owner")
+        .unwrap()
+        .remove(0);
+    let method = pending::ELICITATION_METHOD;
+    let receipt = json!({"method":method,"handledByClientId":"owner","result":{"ok":true}});
+    assert!(confirm_receipt(&item, method, &receipt).is_ok());
+    for result in [json!({"ok":false}), json!({}), json!({"result":{"ok":true}})] {
+        let mut wrong = receipt.clone();
+        wrong["result"] = result;
+        assert!(matches!(
+            confirm_receipt(&item, method, &wrong),
+            Err(ReplyFailure::Uncertain(_))
+        ));
+    }
+}
