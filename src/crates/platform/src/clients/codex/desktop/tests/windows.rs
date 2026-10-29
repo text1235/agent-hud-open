@@ -15,7 +15,7 @@ async fn send(pipe: &mut NamedPipeServer, message: Value) {
     pipe.write_all(&bytes).await.unwrap();
 }
 async fn response(pipe: &mut NamedPipeServer, request: &Value, result: Value) {
-    send(pipe, json!({"type":"response","requestId":request["requestId"],"resultType":"success","handledByClientId":"owner","result":result})).await;
+    send(pipe, json!({"type":"response","requestId":request["requestId"],"resultType":"success","method":request["method"],"handledByClientId":"owner","result":result})).await;
 }
 fn wait(mut condition: impl FnMut() -> bool) {
     let end = Instant::now() + Duration::from_secs(5);
@@ -64,7 +64,7 @@ fn named_pipe_observer_answers_question_and_stops() {
                 assert_eq!(mutation["method"], "thread-follower-steer-turn");
                 assert_eq!(mutation["targetClientId"], "owner");
                 assert!(mutation.to_string().contains("First"));
-                response(&mut answer, &mutation, json!({"method":"thread-follower-steer-turn","result":{"result":{"turnId":"turn-fixture"}}})).await;
+                response(&mut answer, &mutation, json!({"result":{"turnId":"turn-fixture"}})).await;
                 // Wait for the observer to close its stream on stop.
                 let mut byte = [0];
                 assert_eq!(stream.read(&mut byte).await.unwrap_or(0), 0);

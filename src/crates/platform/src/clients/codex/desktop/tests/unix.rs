@@ -21,7 +21,7 @@ fn send(socket: &mut UnixStream, value: Value) {
 fn response(socket: &mut UnixStream, request: &Value, result: Value) {
     send(
         socket,
-        json!({"type":"response","requestId":request["requestId"],"resultType":"success","handledByClientId":"owner","result":result}),
+        json!({"type":"response","requestId":request["requestId"],"resultType":"success","method":request["method"],"handledByClientId":"owner","result":result}),
     );
 }
 fn wait(mut condition: impl FnMut() -> bool) {
@@ -83,7 +83,7 @@ fn observer_owned_reply_settle_and_disconnect_fixture() {
                 response(
                     &mut answer,
                     &mutation,
-                    json!({"method":pending::ELICITATION_METHOD,"result":{"ok":true}}),
+                    json!({"ok":true}),
                 );
             }
             ready.recv_timeout(Duration::from_secs(4)).unwrap();
