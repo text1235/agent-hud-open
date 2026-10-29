@@ -15,6 +15,7 @@ import type {
 } from "@agent-hud/hud/model";
 import type { Direction } from "@agent-hud/hud/bots/mark-director";
 import type { Snapshot, NativeMethod } from "./lib/types";
+import { singleAlertDisplay } from "./lib/alert-display";
 import type {
   NativeHUDGeometry,
   NativeHUDMonitor,
@@ -564,6 +565,14 @@ export default function NativeHUDSurface({
     (monitors.find((m) => m.screenId === screenId)?.primary ??
       monitors[0]?.screenId === screenId);
   const underPointer = (() => {
+    if (isTauri() && monitors) {
+      const ownsAlerts = singleAlertDisplay(
+        screenId,
+        monitors,
+        snapshot.settings,
+      );
+      if (ownsAlerts !== undefined) return ownsAlerts;
+    }
     if (!isTauri() || !geometry || !monitors || monitors.length <= 1)
       return true;
     const isPrimary =
