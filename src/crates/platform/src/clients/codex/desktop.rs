@@ -1,11 +1,15 @@
 //! Public native approvals/questions only. This observer shares generic Desktop
 //! framing with other users, but never starts/resumes a conversation or engine.
+#[cfg(unix)]
+mod daemon;
+#[cfg(windows)]
+#[path = "desktop_windows.rs"]
 mod daemon;
 mod pending;
 mod stream;
 pub(crate) use daemon::daemon_tui_origin_for as daemon_tui_origin;
 
-use super::desktop_io::{DesktopIpc, IpcError};
+use super::desktop_io::{self, DesktopIpc, IpcError, ShutdownHandle};
 use crate::hooks::Wake;
 use agent_hud_agents::codex::AGENT;
 use agent_hud_core::l10n;
@@ -14,8 +18,6 @@ use pending::Pending;
 use serde_json::Value;
 use std::{
     collections::HashMap,
-    net::Shutdown,
-    os::unix::net::UnixStream,
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -37,16 +39,17 @@ struct State {
     reported: HashMap<String, Instant>,
     known: HashMap<String, ThreadState>,
     pending: HashMap<String, LivePending>,
-    connection: Option<UnixStream>,
-    answer_connections: HashMap<String, UnixStream>,
+    connection: Option<ShutdownHandle>,
+    answer_connections: HashMap<String, ShutdownHandle>,
 }
 struct Shared {
     active: AtomicBool,
+    questions_only: AtomicBool,
     state: Mutex<State>,
     changed: Condvar,
     requests: Requests,
     wake: Wake,
-    data: PathBuf,
+    endpoint: PathBuf,
 }
 
 pub struct CodexDesktopObserver {
@@ -58,8 +61,12 @@ impl CodexDesktopObserver {
         if !data_directory.is_absolute() {
             return Err("Codex data directory must be absolute".into());
         }
+        Self::start_at(desktop_io::endpoint(&data_directory), requests, wake)
+    }
+    fn start_at(endpoint: PathBuf, requests: Requests, wake: Wake) -> Result<Self, String> {
         let shared = Arc::new(Shared {
             active: AtomicBool::new(true),
+            questions_only: AtomicBool::new(false),
             state: Mutex::new(State {
                 reported: HashMap::new(),
                 known: HashMap::new(),
@@ -70,7 +77,7 @@ impl CodexDesktopObserver {
             changed: Condvar::new(),
             requests,
             wake,
-            data: data_directory,
+            endpoint,
         });
         let owned = shared.clone();
         let worker = thread::Builder::new()
@@ -81,6 +88,19 @@ impl CodexDesktopObserver {
             shared,
             worker: Some(worker),
         })
+    }
+    pub fn set_questions_only(&self, enabled: bool) {
+        self.shared.questions_only.store(enabled, Ordering::Release);
+        let states = {
+            let state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
+            state.known.iter().map(|(id, known)|
+                (id.clone(), known.owner.clone(), known.state.clone())
+            ).collect::<Vec<_>>()
+        };
+        for (id, owner, state) in states {
+            self.shared.reconcile(&id, &owner, state);
+        }
+        (self.shared.wake)();
     }
     pub fn update_sessions(&self, sessions: &[Value]) {
         let now = Instant::now();
@@ -122,10 +142,10 @@ impl CodexDesktopObserver {
         {
             let mut state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
             if let Some(socket) = state.connection.take() {
-                let _ = socket.shutdown(Shutdown::Both);
+                let _ = socket.shutdown();
             }
             for socket in state.answer_connections.values() {
-                let _ = socket.shutdown(Shutdown::Both);
+                let _ = socket.shutdown();
             }
             state.answer_connections.clear();
             for id in state.pending.keys() {
@@ -246,7 +266,12 @@ impl Shared {
                 }
             }
         }
-        let parsed = pending::parse(&state_value, thread, owner);
+        let parsed = pending::parse(&state_value, thread, owner).map(|mut items| {
+            if self.questions_only.load(Ordering::Acquire) {
+                items.retain(|item| item.question.is_some());
+            }
+            items
+        });
         let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
         if !self.active.load(Ordering::Acquire) {
             return;
@@ -401,7 +426,7 @@ impl Shared {
             return Err(ReplyFailure::Cancelled);
         }
         let mut connection =
-            DesktopIpc::connect(&self.data.join("ipc/ipc.sock"), Duration::from_secs(3))?;
+            DesktopIpc::connect(&self.endpoint, Duration::from_secs(3))?;
         {
             let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
             if !self.active.load(Ordering::Acquire) {

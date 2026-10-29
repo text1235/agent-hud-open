@@ -497,6 +497,9 @@ export interface AppSettings {
   appearance: "dark" | "light" | "system";
   language: string;
   clientHooks: boolean;
+  hudPrimaryOnly?: boolean;
+  /** Answer Codex Desktop questions through its native IPC, without installing hooks. */
+  codexDesktopQuestions?: boolean;
   readCopilotQuota?: boolean;
   /** The relay hosts whose balance may be read with the key the client already sends them. */
   relayReading?: string[];

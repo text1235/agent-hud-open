@@ -61,6 +61,7 @@ pub struct Hooks {
     deepseek_plugin: Option<crate::deepseek_plugin::asks::Observer>,
     server: Option<transport::Server>,
     desktop: Option<crate::clients::codex::desktop::CodexDesktopObserver>,
+    desktop_questions: bool,
 }
 impl Hooks {
     /// Creates a disabled owner. Runtime owns this alongside its existing core.
@@ -86,6 +87,7 @@ impl Hooks {
             waker,
             server: None,
             desktop: None,
+            desktop_questions: false,
         })
     }
     /// Explicit live-host discovery; isolated with_sources runtimes never call this.
@@ -148,15 +150,13 @@ impl Hooks {
             self.antigravity.take();
             self.deepseek.take();
             self.deepseek_plugin.take();
-            self.desktop.take();
             self.server.take();
-            return Ok(());
+            return self.sync_desktop();
         }
         if self.is_listening() {
             return Ok(());
         }
         self.server.take();
-        self.desktop.take();
         let server = transport::Server::start(
             &self.data,
             self.requests.clone(),
@@ -165,17 +165,8 @@ impl Hooks {
         )?;
         // Each client's native channel starts only where its descriptor
         // says it runs.
-        use crate::clients::{self, antigravity, codex, deepseek};
+        use crate::clients::{self, antigravity, deepseek};
         use agent_hud_agents as agents;
-        let desktop = clients::runs(&agents::codex::DESKTOP)
-            .then(|| {
-                codex::desktop::CodexDesktopObserver::start(
-                    codex::data_directory()?,
-                    self.requests.clone(),
-                    self.wake.clone(),
-                )
-            })
-            .transpose()?;
         if clients::runs(&agents::antigravity::LOCAL_SERVICE) {
             self.antigravity = Some(antigravity::permissions::Observer::start(
                 self.requests.clone(),
@@ -196,7 +187,44 @@ impl Hooks {
             )?);
         }
         self.server = Some(server);
-        self.desktop = desktop;
+        if let Err(error) = self.sync_desktop() {
+            self.antigravity.take();
+            self.deepseek.take();
+            self.deepseek_plugin.take();
+            self.server.take();
+            return Err(error);
+        }
+        Ok(())
+    }
+    /// Desktop questions use Codex's native IPC without installing client hooks.
+    pub fn configure_desktop_questions(&mut self, enabled: bool) -> Result<(), String> {
+        let previous = self.desktop_questions;
+        self.desktop_questions = enabled;
+        if let Err(error) = self.sync_desktop() {
+            self.desktop_questions = previous;
+            return Err(error);
+        }
+        Ok(())
+    }
+    pub fn desktop_questions_enabled(&self) -> bool {
+        self.desktop_questions
+    }
+    fn sync_desktop(&mut self) -> Result<(), String> {
+        let callbacks = self.is_listening();
+        if !callbacks && !self.desktop_questions {
+            self.desktop.take();
+            return Ok(());
+        }
+        if self.desktop.is_none() && crate::clients::runs(&agent_hud_agents::codex::DESKTOP) {
+            self.desktop = Some(crate::clients::codex::desktop::CodexDesktopObserver::start(
+                crate::clients::codex::data_directory()?,
+                self.requests.clone(),
+                self.wake.clone(),
+            )?);
+        }
+        if let Some(observer) = &self.desktop {
+            observer.set_questions_only(!callbacks);
+        }
         Ok(())
     }
     pub fn is_listening(&self) -> bool {
@@ -259,6 +287,7 @@ impl Hooks {
         }
     }
     pub fn stop(&mut self) {
+        self.desktop_questions = false;
         let _ = self.configure(false);
     }
 }

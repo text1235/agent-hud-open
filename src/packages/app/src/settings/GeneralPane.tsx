@@ -25,7 +25,7 @@ export function GeneralPane({ snapshot, action }: SettingsPaneProps) {
   const [hookError, setHookError] = useState<string | null>(null);
   const hookStatus = snapshot.connection.clientHooks;
   const configureHooks = async (
-    key: "clientHooks" | "approvalWaitMinutes",
+    key: "clientHooks" | "codexDesktopQuestions" | "approvalWaitMinutes",
     value: unknown,
   ) => {
     if (hookPending) return;
@@ -121,6 +121,14 @@ export function GeneralPane({ snapshot, action }: SettingsPaneProps) {
         </Section>
         <Section title={t("Startup", "启动")}>
           <ToggleRow
+            title={t("Show HUD on primary display only", "只在主显示器显示 HUD")}
+            subtitle={t("Keep the HUD on your primary display when using multiple screens.", "使用多个屏幕时，只在系统主显示器显示悬浮窗。")}
+            checked={snapshot.settings.hudPrimaryOnly ?? false}
+            disabled={hookPending}
+            change={(value) => setting("hudPrimaryOnly", value)}
+          />
+          <Divider />
+          <ToggleRow
             title={t("Launch at login", "登录时启动")}
             subtitle={t(
               "Keep an eye on usage whenever you start your Mac.",
@@ -135,6 +143,19 @@ export function GeneralPane({ snapshot, action }: SettingsPaneProps) {
           />
         </Section>
         <Section title={t("Clients", "客户端")}>
+          <ToggleRow
+            title={t("Answer Codex Desktop questions", "在 HUD 回答 Codex 桌面端问题")}
+            subtitle={t(
+              "Show questions from active Codex Desktop sessions and send your answer to the same turn.",
+              "显示 Codex 桌面端正在等待的问题，将您的回答发回原会话当前轮。",
+            )}
+            checked={snapshot.settings.codexDesktopQuestions ?? false}
+            disabled={hookPending}
+            change={(value) => {
+              void configureHooks("codexDesktopQuestions", value);
+            }}
+          />
+          <Divider />
           <ToggleRow
             title={t("Client hooks", "客户端回调")}
             subtitle={t(

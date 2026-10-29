@@ -295,7 +295,8 @@ impl Planner {
     ) {
         let visible = snapshot.is_none_or(|snapshot| snapshot["settings"]["hudVisible"] != false);
         for display in &self.displays {
-            let config = plan(display, view, snapshot, visible, now_ms);
+            let primary_only = snapshot.is_some_and(|snapshot| snapshot["settings"]["hudPrimaryOnly"] == true);
+            let config = plan(display, view, snapshot, visible && (!primary_only || display.info.primary), now_ms);
             let id = display.info.screen_id.clone();
             let Ok(signature) =
                 serde_json::to_string(&(&config, display.info.bounds, display.info.scale_factor))
