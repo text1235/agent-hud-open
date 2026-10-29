@@ -55,11 +55,17 @@ fn desktop_questions_preference_is_explicit_persisted_and_does_not_install_hooks
     assert!(!runtime.core.codex_desktop_questions_enabled());
     for value in [json!(null), json!("true"), json!(1)] {
         assert!(runtime
-            .request("set_setting", json!({"key":"codexDesktopQuestions","value":value}))
+            .request(
+                "set_setting",
+                json!({"key":"codexDesktopQuestions","value":value})
+            )
             .is_err());
     }
     runtime
-        .request("set_setting", json!({"key":"codexDesktopQuestions","value":true}))
+        .request(
+            "set_setting",
+            json!({"key":"codexDesktopQuestions","value":true}),
+        )
         .unwrap();
     assert!(runtime.core.codex_desktop_questions_enabled());
     assert!(!runtime.core.client_hooks_enabled());
@@ -76,7 +82,10 @@ fn demo_never_starts_desktop_questions_even_with_saved_preference() {
     let temp = tempfile::tempdir().unwrap();
     let mut runtime = Runtime::demo(temp.path().join("demo"), None).unwrap();
     runtime
-        .request("set_setting", json!({"key":"codexDesktopQuestions","value":true}))
+        .request(
+            "set_setting",
+            json!({"key":"codexDesktopQuestions","value":true}),
+        )
         .unwrap();
     runtime.configure_desktop_questions().unwrap();
     let handle = runtime.hooks_handle();

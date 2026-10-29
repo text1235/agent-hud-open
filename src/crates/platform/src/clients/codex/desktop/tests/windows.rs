@@ -28,11 +28,17 @@ fn wait(mut condition: impl FnMut() -> bool) {
 #[test]
 fn named_pipe_observer_answers_question_and_stops() {
     // An isolated fixture never connects to the installed Codex router.
-    let path = PathBuf::from(format!(r"\\.\pipe\agenthud-observer-{}", desktop_io::request_id().unwrap()));
+    let path = PathBuf::from(format!(
+        r"\\.\pipe\agenthud-observer-{}",
+        desktop_io::request_id().unwrap()
+    ));
     let owned = path.clone();
     let (ready, waiting) = std::sync::mpsc::channel();
     let worker = thread::spawn(move || {
-        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
         runtime.block_on(async {
             let mut stream = ServerOptions::new().first_pipe_instance(true).reject_remote_clients(true).create(&owned).unwrap();
             ready.send(()).unwrap();
@@ -67,15 +73,27 @@ fn named_pipe_observer_answers_question_and_stops() {
     });
     waiting.recv_timeout(Duration::from_secs(5)).unwrap();
     let requests = Requests::default();
-    let mut observer = CodexDesktopObserver::start_at(path, requests.clone(), Arc::new(|| {})).unwrap();
+    let mut observer =
+        CodexDesktopObserver::start_at(path, requests.clone(), Arc::new(|| {})).unwrap();
     observer.set_questions_only(true);
     observer.update_sessions(&[json!({"source":AGENT.id,"state":"running","navigationTarget":{"kind":"codex-thread","id":THREAD}})]);
     wait(|| requests.views(crate::hooks::now_ms()).len() == 1);
     let view = requests.views(crate::hooks::now_ms()).remove(0);
     let id = view["id"].as_str().unwrap();
     let key = serde_json::to_string(&json!(["request_user_input_async", "message", 0])).unwrap();
-    requests.answer(id, &json!({"kind":"answer","answers":{key:{"selected":["First"]}}}), crate::hooks::now_ms()).unwrap();
-    wait(|| requests.deliveries(crate::hooks::now_ms()).iter().any(|row| row["id"] == id && row["state"] == "confirmed"));
+    requests
+        .answer(
+            id,
+            &json!({"kind":"answer","answers":{key:{"selected":["First"]}}}),
+            crate::hooks::now_ms(),
+        )
+        .unwrap();
+    wait(|| {
+        requests
+            .deliveries(crate::hooks::now_ms())
+            .iter()
+            .any(|row| row["id"] == id && row["state"] == "confirmed")
+    });
     observer.stop();
     assert!(requests.views(crate::hooks::now_ms()).is_empty());
     worker.join().unwrap();

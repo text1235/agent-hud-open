@@ -157,8 +157,11 @@ mod windows;
 fn questions_only_does_not_expose_approval_cards() {
     let requests = Requests::default();
     let mut observer = CodexDesktopObserver::start_at(
-        PathBuf::from("unused-fixture-endpoint"), requests.clone(), Arc::new(|| {}),
-    ).unwrap();
+        PathBuf::from("unused-fixture-endpoint"),
+        requests.clone(),
+        Arc::new(|| {}),
+    )
+    .unwrap();
     observer.set_questions_only(true);
     let state = snapshot(vec![permission("computer-use", json!(["session"]))]);
     observer.shared.reconcile(THREAD, "owner", state);

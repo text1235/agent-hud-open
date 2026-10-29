@@ -234,7 +234,10 @@ fn cancellation_interrupts_a_partial_reply_and_keeps_the_write_marker() {
     shutdown.shutdown().unwrap();
     let (result, wrote) = reader.join().unwrap();
     assert_eq!(result, Err(IpcError::Unavailable));
-    assert!(wrote, "a cancelled reply cannot turn an accepted write into a retry");
+    assert!(
+        wrote,
+        "a cancelled reply cannot turn an accepted write into a retry"
+    );
     assert!(stopped.elapsed() < Duration::from_secs(1));
     server.join().unwrap();
 }
