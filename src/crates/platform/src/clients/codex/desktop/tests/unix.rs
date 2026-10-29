@@ -80,11 +80,7 @@ fn observer_owned_reply_settle_and_disconnect_fixture() {
             if uncertain {
                 drop(answer);
             } else {
-                response(
-                    &mut answer,
-                    &mutation,
-                    json!({"ok":true}),
-                );
+                response(&mut answer, &mutation, json!({"ok":true}));
             }
             ready.recv_timeout(Duration::from_secs(4)).unwrap();
             send(
