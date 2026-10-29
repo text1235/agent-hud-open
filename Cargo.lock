@@ -128,7 +128,10 @@ dependencies = [
 name = "agent-hud-next"
 version = "0.1.0"
 dependencies = [
+ "agent-hud-agents",
  "agent-hud-host",
+ "reqwest",
+ "serde_json",
  "tauri",
  "tauri-build",
 ]
