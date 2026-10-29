@@ -564,15 +564,12 @@ export default function NativeHUDSurface({
     !monitors ||
     (monitors.find((m) => m.screenId === screenId)?.primary ??
       monitors[0]?.screenId === screenId);
+  const alertOwner =
+    isTauri() && monitors
+      ? singleAlertDisplay(screenId, monitors, snapshot.settings)
+      : undefined;
   const underPointer = (() => {
-    if (isTauri() && monitors) {
-      const ownsAlerts = singleAlertDisplay(
-        screenId,
-        monitors,
-        snapshot.settings,
-      );
-      if (ownsAlerts !== undefined) return ownsAlerts;
-    }
+    if (alertOwner !== undefined) return alertOwner;
     if (!isTauri() || !geometry || !monitors || monitors.length <= 1)
       return true;
     const isPrimary =
@@ -624,7 +621,9 @@ export default function NativeHUDSurface({
     : undefined;
   return (
     <HUDScene
-      snapshot={snapshot}
+      snapshot={
+        alertOwner === false ? { ...snapshot, approvals: [] } : snapshot
+      }
       config={shownConfig}
       dragPreview={dragPreview}
       dragEndSequence={dragEndSequence}

@@ -5,7 +5,6 @@ import { agentVendorName, sourceID, vendorKey } from "./model";
 import { CompletionAlertView } from "./alerts/CompletionAlertView";
 import { QuotaAlertView, ResetCreditAlertView } from "./alerts/QuotaAlertViews";
 import { snapshotLanguage } from "@agent-hud/ui/format";
-import { newOwnedRequests } from "./alerts/request-ownership";
 
 export { ReminderMark } from "./alerts/ReminderMark";
 export {
@@ -119,12 +118,16 @@ export function useIslandNews(
     for (const event of items) seen.current.add(event.id);
     if (seen.current.size > 128)
       seen.current = new Set(items.map((event) => event.id));
+    const freshRequests =
+      seenRequests.current === null
+        ? requests
+        : requests.filter((request) => !seenRequests.current!.has(request.id));
     if (seenRequests.current === null) seenRequests.current = new Set();
-    const freshRequests = newOwnedRequests(
-      requests,
-      seenRequests.current,
-      underPointer,
-    );
+    const activeRequestIds = new Set(requests.map((request) => request.id));
+    for (const id of [...seenRequests.current]) {
+      if (!activeRequestIds.has(id)) seenRequests.current.delete(id);
+    }
+    for (const request of requests) seenRequests.current.add(request.id);
     const visible =
       silenced || !underPointer
         ? []
