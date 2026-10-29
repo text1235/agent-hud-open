@@ -143,6 +143,7 @@ impl ProductExtension for Workbench {
                 if let Some(connection) = &state.connection {
                     value["projectRoot"] = json!(connection.root);
                     value["workbenchRoot"] = json!(connection.workbench);
+                    value["automaticDispatch"] = crate::auto_dispatch::status(&connection.root)?;
                 }
                 Ok(value)
             }
@@ -180,6 +181,13 @@ impl ProductExtension for Workbench {
                 state.snapshot = json!({"connected":false,"tasks":[]});
                 self.shared.1.notify_all();
                 Ok(state.snapshot.clone())
+            }
+            "workbench_auto_dispatch" => {
+                let root = self.shared.0.lock().unwrap_or_else(|p| p.into_inner())
+                    .connection.as_ref().map(|connection| connection.root.clone())
+                    .ok_or("请先连接项目工作台")?;
+                let enabled = params["enabled"].as_bool().ok_or("自动派工设置必须为开关值")?;
+                crate::auto_dispatch::enable(&root, enabled)
             }
             "workbench_task" | "workbench_submit" => {
                 let selected = self

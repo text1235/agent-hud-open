@@ -170,5 +170,14 @@ fn questions_only_does_not_expose_approval_cards() {
     assert_eq!(requests.views(crate::hooks::now_ms()).len(), 1);
     observer.set_questions_only(true);
     assert!(requests.views(crate::hooks::now_ms()).is_empty());
+    let old = snapshot(vec![permission("computer-use", json!(["session"]))]);
+    let approval = pending::parse(&old, THREAD, "owner").unwrap().remove(0);
+    assert!(matches!(observer.shared.resolve(&approval, &json!({"kind":"allow"})), Err(ReplyFailure::Cancelled)));
+    let newer = snapshot(vec![]);
+    observer.shared.reconcile(THREAD, "owner", newer.clone());
+    observer.set_questions_only(false);
+    observer.shared.reconcile_state(THREAD, "owner", old, true);
+    assert_eq!(observer.shared.state.lock().unwrap().known[THREAD].state, newer);
+    assert!(requests.views(crate::hooks::now_ms()).is_empty());
     observer.stop();
 }

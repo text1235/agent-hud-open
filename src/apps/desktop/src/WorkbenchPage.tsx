@@ -15,6 +15,7 @@ type Task = {
 };
 type WorkbenchState = {
   connected?: boolean;
+  automaticDispatch?: { enabled: boolean };
   projectRoot?: string;
   workbenchRoot?: string;
   error?: string;
@@ -101,11 +102,6 @@ function WorkbenchPage({ request }: { request: Request }) {
 
   return (
     <div className="workbench-page">
-      <h2>协作工作台</h2>
-      <p>
-        连接已有的大肥鱼 Gateway 和 Antigravity
-        桌面工作台。只显示所选项目的任务。
-      </p>
       <section>
         <label>
           所属项目根目录
@@ -172,6 +168,32 @@ function WorkbenchPage({ request }: { request: Request }) {
           {error || state.error}
         </p>
       )}
+      <section>
+        <h3>自动判断派工</h3>
+        <label>
+          <input
+            type="checkbox"
+            checked={state.automaticDispatch?.enabled ?? false}
+            disabled={busy || !state.connected}
+            onChange={async (event) => {
+              const value = await act("workbench_auto_dispatch", {
+                enabled: event.target.checked,
+              });
+              if (value)
+                setState((previous) => ({
+                  ...previous,
+                  automaticDispatch: value as { enabled: boolean },
+                }));
+            }}
+          />
+          让 Codex 判断当前项目的任务是否值得派工
+        </label>
+        <p>
+          简单任务直接完成；可独立拆分且有收益的任务交给大肥鱼或
+          Antigravity，交付后由 Codex 独立验收。启用后将规则写入所选项目的
+          AGENTS.md，保留原内容和备份；在该项目的后续 Codex 任务中生效。
+        </p>
+      </section>
       <section>
         <h3>手动派工</h3>
         <p>

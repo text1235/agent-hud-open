@@ -285,7 +285,22 @@ fn cancellation_before_post_does_not_report_a_write() {
 }
 
 #[test]
-fn cancellation_interrupts_a_write_blocked_by_pipe_backpressure() {
+fn readiness_after_an_exact_frame_read_does_not_block_the_answer_loop() {
+    let (release, released) = tokio::sync::oneshot::channel();
+    let (path, server) = serve(|mut pipe| async move {
+        fragmented_message(&mut pipe, json!({"ready":true})).await;
+        let _ = released.await;
+    });
+    let mut connection = DesktopIpc::connect(&path, Duration::from_secs(3)).unwrap();
+    assert_eq!(connection.receive().unwrap(), json!({"ready":true}));
+    assert_eq!(connection.wait_for_message(Duration::from_millis(50)), Ok(false));
+    release.send(()).unwrap();
+    drop(connection);
+    server.join().unwrap();
+}
+
+#[test]
+fn cancellation_interrupts_continuous_writes_without_a_reader() {
     let (release, released) = tokio::sync::oneshot::channel();
     let (path, server) = serve(|pipe| async move {
         let _ = released.await;
@@ -295,10 +310,14 @@ fn cancellation_interrupts_a_write_blocked_by_pipe_backpressure() {
     let shutdown = connection.shutdown_handle().unwrap();
     let (wrote, waiting) = mpsc::channel();
     let writer = thread::spawn(move || {
-        connection.post_with_write(
-            json!({"payload":"x".repeat(1024 * 1024)}),
-            Some(&mut || wrote.send(()).unwrap()),
-        )
+        let payload = json!({"payload":"x".repeat(1024 * 1024)});
+        let mut first = true;
+        loop {
+            let result = connection.post_with_write(payload.clone(), Some(&mut || {
+                if first { wrote.send(()).unwrap(); first = false; }
+            }));
+            if result.is_err() { break result; }
+        }
     });
     waiting.recv_timeout(Duration::from_secs(3)).unwrap();
     let stopped = Instant::now();

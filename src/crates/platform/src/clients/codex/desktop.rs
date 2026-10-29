@@ -90,9 +90,18 @@ impl CodexDesktopObserver {
         })
     }
     pub fn set_questions_only(&self, enabled: bool) {
-        self.shared.questions_only.store(enabled, Ordering::Release);
         let states = {
             let state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
+            self.shared.questions_only.store(enabled, Ordering::Release);
+            if enabled {
+                for (id, pending) in &state.pending {
+                    if pending.item.question.is_none() {
+                        if let Some(connection) = state.answer_connections.get(id) {
+                            let _ = connection.shutdown();
+                        }
+                    }
+                }
+            }
             state
                 .known
                 .iter()
@@ -100,7 +109,7 @@ impl CodexDesktopObserver {
                 .collect::<Vec<_>>()
         };
         for (id, owner, state) in states {
-            self.shared.reconcile(&id, &owner, state);
+            self.shared.reconcile_state(&id, &owner, state, true);
         }
         (self.shared.wake)();
     }
@@ -248,7 +257,14 @@ impl Shared {
             .set_native_waiting(AGENT.id, &sessions, crate::hooks::now_ms());
     }
     fn reconcile(&self, thread: &str, owner: &str, state_value: Value) {
+        self.reconcile_state(thread, owner, state_value, false);
+    }
+    fn reconcile_state(&self, thread: &str, owner: &str, state_value: Value, current_only: bool) {
+        let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
         if !self.active.load(Ordering::Acquire) {
+            return;
+        }
+        if current_only && !state.known.get(thread).is_some_and(|known| known.owner == owner && known.state == state_value) {
             return;
         }
         if let Ok(turns) = pending::turns(&state_value, true) {
@@ -274,10 +290,6 @@ impl Shared {
             }
             items
         });
-        let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
-        if !self.active.load(Ordering::Acquire) {
-            return;
-        }
         state.known.insert(
             thread.into(),
             ThreadState {
@@ -407,6 +419,9 @@ impl Shared {
         }
     }
     fn resolve(&self, item: &Pending, decision: &Value) -> Result<(), ReplyFailure> {
+        if item.question.is_none() && self.questions_only.load(Ordering::Acquire) {
+            return Err(ReplyFailure::Cancelled);
+        }
         let (response, method, state_value) = {
             let state = self.state.lock().unwrap_or_else(|p| p.into_inner());
             let known = state.known.get(&item.thread).ok_or(IpcError::Unavailable)?;
@@ -430,7 +445,7 @@ impl Shared {
         let mut connection = DesktopIpc::connect(&self.endpoint, Duration::from_secs(3))?;
         {
             let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
-            if !self.active.load(Ordering::Acquire) {
+            if !self.active.load(Ordering::Acquire) || (item.question.is_none() && self.questions_only.load(Ordering::Acquire)) {
                 return Err(ReplyFailure::Cancelled);
             }
             state
@@ -480,6 +495,9 @@ impl Shared {
         // A reply attempt is never automatically retried. Requests retains its
         // dismissed identity until the owner actually settles this exact request.
         if !self.active.load(Ordering::Acquire) {
+            return Err(ReplyFailure::Cancelled);
+        }
+        if item.question.is_none() && self.questions_only.load(Ordering::Acquire) {
             return Err(ReplyFailure::Cancelled);
         }
         let mut wrote = false;
