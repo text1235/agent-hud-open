@@ -1,0 +1,68 @@
+.workbench-page {
+  display: grid;
+  gap: 16px;
+  padding: 24px;
+  max-width: 900px;
+  font-size: 14px;
+}
+.workbench-page section {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+}
+.workbench-page h2,
+.workbench-page h3 {
+  font-weight: 600;
+}
+.workbench-page h2 {
+  font-size: 20px;
+}
+.workbench-page p,
+.workbench-page small {
+  overflow-wrap: anywhere;
+}
+.workbench-page label {
+  display: grid;
+  gap: 6px;
+}
+.workbench-page textarea,
+.workbench-page select {
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: inherit;
+  background: var(--background);
+  width: 100%;
+}
+.workbench-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.workbench-error {
+  color: var(--destructive);
+}
+.workbench-tasks {
+  display: grid;
+  gap: 8px;
+}
+.workbench-tasks > button {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  text-align: left;
+}
+.workbench-tasks > button:hover {
+  background: var(--muted);
+}
+.workbench-result pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 440px;
+  overflow: auto;
+}

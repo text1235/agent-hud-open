@@ -152,3 +152,20 @@ fn immer_patch_operations_follow_source() {
 mod unix;
 #[cfg(windows)]
 mod windows;
+
+#[test]
+fn questions_only_does_not_expose_approval_cards() {
+    let requests = Requests::default();
+    let mut observer = CodexDesktopObserver::start_at(
+        PathBuf::from("unused-fixture-endpoint"), requests.clone(), Arc::new(|| {}),
+    ).unwrap();
+    observer.set_questions_only(true);
+    let state = snapshot(vec![permission("computer-use", json!(["session"]))]);
+    observer.shared.reconcile(THREAD, "owner", state);
+    assert!(requests.views(crate::hooks::now_ms()).is_empty());
+    observer.set_questions_only(false);
+    assert_eq!(requests.views(crate::hooks::now_ms()).len(), 1);
+    observer.set_questions_only(true);
+    assert!(requests.views(crate::hooks::now_ms()).is_empty());
+    observer.stop();
+}
