@@ -199,6 +199,16 @@ impl Runtime {
     pub fn hooks_handle(&self) -> Arc<Mutex<hooks::Hooks>> {
         Arc::clone(&self.hooks)
     }
+    /// The live host enables Desktop questions independently of installed client hooks.
+    pub fn configure_desktop_questions(&self) -> Result<(), String> {
+        if self.demo.is_none() {
+            self.hooks
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .configure_desktop_questions(self.core.codex_desktop_questions_enabled())?;
+        }
+        Ok(())
+    }
     /// The native product host, never an RPC payload, supplies its approved fixed executable.
     pub fn delegate_hook_owner(&mut self, canonical_executable: PathBuf) -> Result<(), String> {
         let context = hooks::InstallContext {

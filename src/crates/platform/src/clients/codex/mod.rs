@@ -1,9 +1,5 @@
 //! Codex's native channel: the desktop app's IPC (`agents::codex::DESKTOP`).
-// Codex desktop's IPC is a Unix socket. Windows has an inert observer.
-#[cfg(unix)]
-pub mod desktop;
-#[cfg(windows)]
-#[path = "desktop_windows.rs"]
+// The observer shares framing and request semantics across native transports.
 pub mod desktop;
 pub mod desktop_io;
 
