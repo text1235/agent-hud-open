@@ -227,7 +227,12 @@ export function HUDExpandedSurface({
                     : edge === "left"
                       ? "left center"
                       : "right center",
-              overflow: config.mode === "notch" ? "visible" : "hidden",
+              // Compact reminders let the Bot's question mark rise above the
+              // capsule. Expanded card content keeps its normal clipping.
+              overflow:
+                config.mode === "notch" || (!open && Boolean(request || event))
+                  ? "visible"
+                  : "hidden",
               borderRadius: detached
                 ? Math.min(
                     peek ? (simplePeek ? targetSize.height / 2 : 14) : 22,
