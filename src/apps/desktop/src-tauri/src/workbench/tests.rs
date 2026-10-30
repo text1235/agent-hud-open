@@ -49,6 +49,32 @@ fn state_is_scoped_by_exact_project_path_or_gateway_project_id() {
 }
 
 #[test]
+fn other_projects_fly_both_directions_without_entering_the_selected_task_list() {
+    let selected = Path::new("Z:/Agent HUD");
+    let initial = json!({"tasks":[]});
+    let (_, known, _) = project_snapshot(None, &initial, selected);
+    let running = json!({"tasks":[{"id":"other-task","executor":"antigravity","status":"running","project_root":"C:/Work/Research","objective":"private task"}]});
+    let (snapshot, known, flights) = project_snapshot(Some(&known), &running, selected);
+    assert!(snapshot["tasks"].as_array().unwrap().is_empty());
+    assert_eq!(flights.len(), 1);
+    assert_eq!(
+        (&*flights[0].from, &*flights[0].to),
+        ("codex", "antigravity")
+    );
+    let completed = json!({"tasks":[{"id":"other-task","executor":"antigravity","status":"completed","project_root":"C:/Work/Research"}]});
+    let (snapshot, known, flights) = project_snapshot(Some(&known), &completed, selected);
+    assert!(snapshot["tasks"].as_array().unwrap().is_empty());
+    assert_eq!(flights.len(), 1);
+    assert_eq!(
+        (&*flights[0].from, &*flights[0].to),
+        ("antigravity", "codex")
+    );
+    assert!(transitions(Some(&known), &completed).1.is_empty());
+    // Connecting or restarting only establishes a baseline; it never replays history.
+    assert!(transitions(None, &completed).1.is_empty());
+}
+
+#[test]
 fn flights_describe_real_new_dispatch_delivery_and_failure_only_once() {
     let initial = json!({"tasks":[{"id":"old","executor":"hermes","status":"completed"}]});
     let (known, flights) = transitions(None, &initial);
