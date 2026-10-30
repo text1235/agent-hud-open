@@ -52,6 +52,18 @@ class NativeTests(unittest.TestCase):
                 self.assertTrue(g.native.enabled(root))
                 self.assertFalse(g.native.enabled(Path(folder)))
             finally:g.native.close();g.db.close()
+    def test_request_key_cannot_escape_the_project_office(self):
+        with tempfile.TemporaryDirectory() as folder:
+            g,root,p,t,c=self.setup_gateway(folder)
+            try:
+                t['request_key']='../../outside'
+                g.native.submit(t,p,'test')
+                binding=g.native.binding(t['id'])
+                self.assertEqual(Path(binding['cwd']).name,'hud-'+t['id'])
+                self.assertTrue(Path(binding['cwd']).resolve().is_relative_to(root.resolve()))
+                self.assertFalse((Path(folder)/'outside').exists())
+            finally:g.native.close();g.db.close()
+
     def test_wrong_native_cwd_stops_before_prompt(self):
         with tempfile.TemporaryDirectory() as folder:
             g,root,p,t,c=self.setup_gateway(folder,bad_cwd=True)
