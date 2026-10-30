@@ -72,6 +72,20 @@ class NativeTests(unittest.TestCase):
                 self.assertNotIn('prompt.submit',[m for m,_ in c.calls])
                 self.assertIsNone(g.native.binding(t['id']))
             finally:g.native.close();g.db.close()
+    def test_configured_reasoning_is_sent_to_native_session(self):
+        with tempfile.TemporaryDirectory() as folder:
+            g,root,p,t,c=self.setup_gateway(folder)
+            try:
+                path=g.state/'native-desktop.json'
+                config=json.loads(path.read_text('utf-8'))
+                config['reasoning_effort']='high'
+                path.write_text(json.dumps(config),'utf-8')
+                g.native.submit(t,p,'test')
+                params=next(p for m,p in c.calls if m=='session.create')
+                self.assertEqual(params['reasoning_effort'],'high')
+                self.assertEqual(params['provider'],config['provider'])
+                self.assertEqual(params['model'],config['model'])
+            finally:g.native.close();g.db.close()
     def test_uncertain_submit_recovers_by_reading_same_session_without_resend(self):
         with tempfile.TemporaryDirectory() as folder:
             g,root,p,t,c=self.setup_gateway(folder,uncertain=True)

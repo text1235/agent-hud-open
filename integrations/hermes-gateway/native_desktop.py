@@ -130,9 +130,12 @@ class NativeTransport:
         if not resolved.get('project') or resolved['project']['id'] != native_project['id']:
             raise ValueError('Native Hermes office belongs to a different project')
         config = self.config()
-        created = client.rpc('session.create', dict(cwd=str(office), cwd_explicit=True, source='desktop',
+        session_params = dict(cwd=str(office), cwd_explicit=True, source='desktop',
             close_on_disconnect=False, title='Codex派工 · '+root.name+' · '+task['objective'][:32],
-            idempotency_key='project-gateway-'+task['id'], model=config['model'], provider=config['provider']))
+            idempotency_key='project-gateway-'+task['id'], model=config['model'], provider=config['provider'])
+        if config.get('reasoning_effort'):
+            session_params['reasoning_effort'] = config['reasoning_effort']
+        created = client.rpc('session.create', session_params)
         live = client.rpc('session.activate', dict(session_id=created['session_id'], omit_messages=True))
         info = live['info']
         if key(info['cwd']) != key(office) or (info.get('project') or {}).get('id') != native_project['id'] or info['model'] != config['model']:
