@@ -106,11 +106,13 @@ impl ProductExtension for Workbench {
                             if state.connection.as_ref() == Some(&selected) && state.active {
                                 match result {
                                     Ok(value) => {
-                                        let value = scoped_state(&value, &selected.root);
-                                        let (known, flights) =
-                                            transitions(state.known.as_ref(), &value);
+                                        let (snapshot, known, flights) = project_snapshot(
+                                            state.known.as_ref(),
+                                            &value,
+                                            &selected.root,
+                                        );
                                         state.known = Some(known);
-                                        state.snapshot = value;
+                                        state.snapshot = snapshot;
                                         drop(state);
                                         for flight in flights {
                                             (host.fly)(flight);
@@ -150,10 +152,8 @@ impl ProductExtension for Workbench {
             "workbench_connect" => {
                 let selected = connection(&params)?;
                 // Verify authorization and availability before saving this connection.
-                let value = scoped_state(
-                    &call(&client()?, ENDPOINT, &selected, "state", json!({}))?,
-                    &selected.root,
-                );
+                let all = call(&client()?, ENDPOINT, &selected, "state", json!({}))?;
+                let value = scoped_state(&all, &selected.root);
                 let mut state = self.shared.0.lock().unwrap_or_else(|p| p.into_inner());
                 if let Some(file) = &state.preferences {
                     if let Some(parent) = file.parent() {
@@ -161,7 +161,7 @@ impl ProductExtension for Workbench {
                     }
                     fs::write(file, serde_json::to_vec(&json!({"projectRoot":selected.root,"workbenchRoot":selected.workbench})).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
                 }
-                state.known = Some(transitions(None, &value).0);
+                state.known = Some(transitions(None, &all).0);
                 state.connection = Some(selected);
                 state.snapshot = value.clone();
                 self.shared.1.notify_all();
@@ -406,6 +406,17 @@ fn submission(selected: &Connection, params: &Value) -> Result<Value, String> {
     Ok(
         json!({"executor":executor,"workspace":selected.root,"project_root":selected.root,"objective":objective,"boundary":boundary,"acceptance":acceptance,"request_key":request_key,"model":MODEL}),
     )
+}
+
+/// Keep task details project-scoped while the desktop's flights reflect all
+/// actual workbench dispatches. Flights contain only agent IDs and an opaque lane.
+fn project_snapshot(
+    previous: Option<&HashMap<String, String>>,
+    value: &Value,
+    root: &Path,
+) -> (Value, HashMap<String, String>, Vec<Flight>) {
+    let (known, flights) = transitions(previous, value);
+    (scoped_state(value, root), known, flights)
 }
 
 fn transitions(
