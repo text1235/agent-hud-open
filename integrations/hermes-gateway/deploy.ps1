@@ -42,7 +42,7 @@ try {
     if(-not $oldProcess.WaitForExit(30000)){throw 'Gateway has not exited; no files replaced and no force termination performed'}
     $oldExited=$true
     foreach($name in @('gateway.py','observations.py','native_desktop.py','desktop_rpc.cjs')){Copy-Item -LiteralPath (Join-Path $sourceRoot $name) -Destination (Join-Path $TargetRoot $name) -Force}
-    $config=@{projects=@($rootPath);publication=(Join-Path $env:USERPROFILE '.local\state\hermes\gateway-locks\host-desktop-serve.json');ownership='Z:\Hermes\data\desktop\backend-ownership.json';profile='default';node=$node;model='agnes-3.0-flash';provider='relay'}
+    $config=@{projects=@($rootPath);publication=(Join-Path $env:USERPROFILE '.local\state\hermes\gateway-locks\host-desktop-serve.json');ownership='Z:\Hermes\data\desktop\backend-ownership.json';profile='default';node=$node;model='mercury-3';provider='mercury3-belmo';reasoning_effort='high'}
     $config | ConvertTo-Json | Set-Content -LiteralPath $configFile -Encoding utf8
     $configCreated=$true
     $newProcess=Start-GatewayService 'new-service'

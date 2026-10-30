@@ -33,11 +33,14 @@ native model and project binding. The workbench creates its project-local
 office directory. Hermes remains registered against the business project
 root. For the native-enabled project, the existing Gateway uses Hermes Desktop's
 official project/session APIs before sending any prompt: it verifies the native
-project, actual session cwd and configured Agnes model, persists the session
+project, actual session cwd and configured model, persists the session
 mapping, then sends once. Its office is under
 `协作办公区/大肥鱼/hud-<request key>` (the task ID is used for keys that are not
 safe directory names). Other projects retain their original transport. The
 adapter and reversible deployment sources are in `integrations/hermes-gateway`.
+This project's Hermes preference is Mercury 3 private gateway
+(`mercury3-belmo`, model `mercury-3`), with `reasoning_effort=high` explicitly
+passed to the native session creation API. Credentials remain in Hermes.
 Task details show the bound office only when native binding evidence exists.
 
 The native adapter sends one request and does not retry a submission. The
