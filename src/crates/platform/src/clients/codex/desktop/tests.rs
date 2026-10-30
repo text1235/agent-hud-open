@@ -109,6 +109,45 @@ fn native_cards_say_what_allowing_keeps_as_open_words_it() {
     );
 }
 #[test]
+fn newest_question_batch_never_replays_an_older_unanswered_prompt() {
+    let mut state = snapshot(vec![]);
+    let newest_key = serde_json::to_string(&json!(["request_user_input_async", "new", 0])).unwrap();
+    state["turns"] = json!([{"turnId":"turn-fixture","status":"inProgress","items":[
+        {"type":"agentMessage","id":"old","questions":[{"title":"Obsolete test","options":["Old"]}]},
+        {"type":"agentMessage","id":"new","questions":[{"title":"Current test","options":["Current"]}]}
+    ]}]);
+    let found = pending::parse(&state, THREAD, "owner").unwrap();
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].request_id, newest_key);
+    let reply = format!(
+        "<send_user_message_question_reply>{}</send_user_message_question_reply>",
+        json!([{"questionItemId":newest_key,"question":"Current test","answer":"Current"}])
+    );
+    state["turns"][0]["items"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"type":"userMessage","content":[{"type":"text","text":reply}]}));
+    assert!(pending::parse(&state, THREAD, "owner").unwrap().is_empty());
+    // A fresh observer after restart makes the same choice; no in-memory dismissal is required.
+    assert!(pending::parse(&state.clone(), THREAD, "owner")
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
+fn latest_batch_keeps_all_of_its_questions() {
+    let mut state = snapshot(vec![]);
+    state["turns"] = json!([{"turnId":"turn-fixture","status":"inProgress","items":[
+        {"type":"agentMessage","id":"old","questions":[{"title":"Old"}]},
+        {"type":"agentMessage","id":"new","questions":[{"title":"One"},{"title":"Two"}]}
+    ]}]);
+    let found = pending::parse(&state, THREAD, "owner").unwrap();
+    assert_eq!(found.len(), 2);
+    assert_eq!(found[0].question.as_ref().unwrap().0, "One");
+    assert_eq!(found[1].question.as_ref().unwrap().0, "Two");
+}
+
+#[test]
 fn canonical_async_question_answer_and_explicit_settlement() {
     let mut state = snapshot(vec![]);
     state["turnHistory"] = json!({"kind":"canonical","history":{"islands":[{"entries":[{"value":"key"}]}],"entitiesByKey":{"key":{"turnId":"turn-fixture","status":"inProgress","items":[{"type":"agentMessage","id":"message","questions":[{"title":"Pick one","options":["First","Second"]}]}]}}}});
