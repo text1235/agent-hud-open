@@ -1,6 +1,7 @@
 """Hermes Desktop transport for the existing project Gateway; no new service."""
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -114,10 +115,11 @@ class NativeTransport:
 
     def submit(self, task, project, message):
         root = Path(project['path']).resolve(strict=True)
-        office = root / '协作办公区' / '大肥鱼' / ('hud-'+task['request_key'])
-        office.mkdir(parents=True, exist_ok=True)
+        name = task['request_key'] if re.fullmatch(r'[A-Za-z0-9_-]{1,100}', task['request_key']) else task['id']
+        office = root / '协作办公区' / '大肥鱼' / ('hud-'+name)
         if not office.resolve().is_relative_to(root):
             raise ValueError('Hermes office escaped its business project')
+        office.mkdir(parents=True, exist_ok=True)
         client = self.client(task['id'])
         projects = client.rpc('projects.list', {})['projects']
         matches = [p for p in projects if p.get('primary_path') and key(p['primary_path']) == key(root)]
