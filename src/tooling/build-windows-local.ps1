@@ -1,9 +1,11 @@
 param(
     [string]$ToolsRoot='Z:\Agent HUD\build-tools',
-    [string]$EvidenceRoot='Z:\Agent HUD\测试记录\0.1.2-local-build'
+    [string]$EvidenceRoot
 )
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
+$version=(Get-Content -LiteralPath (Join-Path $root 'src\apps\desktop\src-tauri\tauri.conf.json') -Raw | ConvertFrom-Json).version
+if(-not $EvidenceRoot){$EvidenceRoot="Z:\Agent HUD\测试记录\$version-local-build"}
 $tools=(Resolve-Path -LiteralPath $ToolsRoot).Path
 $portable=Join-Path $tools 'portable-msvc\msvc'
 $vc=@(Get-ChildItem -LiteralPath (Join-Path $portable 'VC\Tools\MSVC') -Directory)
@@ -48,7 +50,7 @@ function Invoke-Phase([string]$Name,[string]$Exe,[string[]]$Arguments){
     $log=Join-Path $EvidenceRoot $Name
     $quoted=@($Arguments | ForEach-Object {'"'+$_+'"'})
     $process=Start-Process -FilePath $Exe -ArgumentList $quoted -WorkingDirectory $root -WindowStyle Hidden -PassThru -RedirectStandardOutput ($log+'.stdout.log') -RedirectStandardError ($log+'.stderr.log')
-    $record=[ordered]@{task='Agent HUD 0.1.2 local build';phase=$Name;path=$Exe;args=$Arguments;pid=$process.Id;startedAt=$process.StartTime.ToString('o')}
+    $record=[ordered]@{task="Agent HUD $version local build";phase=$Name;path=$Exe;args=$Arguments;pid=$process.Id;startedAt=$process.StartTime.ToString('o')}
     $record | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath ($log+'.process.json') -Encoding utf8
     try{
         $process.WaitForExit()
@@ -66,9 +68,9 @@ function Invoke-Phase([string]$Name,[string]$Exe,[string[]]$Arguments){
 Invoke-Phase 'clippy' $cargo @('clippy','--workspace','--tests','--locked','--','-D','warnings')
 Invoke-Phase 'native-tests' $cargo @('test','--workspace','--locked','--no-fail-fast')
 Invoke-Phase 'installer' $node @($pnpm,'run','build:windows','--','--bundle')
-$installers=@(Get-ChildItem -LiteralPath (Join-Path $root 'target\release\bundle\nsis') -Filter '*-setup.exe')
+$installers=@(Get-ChildItem -LiteralPath (Join-Path $root 'target\release\bundle\nsis') -Filter "*_$($version)_x64-setup.exe")
 if($installers.Count -ne 1){throw 'Expected one installer'}
 $revision=(& git -C $root rev-parse HEAD).Trim()
 $changes=& git -C $root status --porcelain --untracked-files=no
 if($changes){throw 'Tracked source changed during build; provenance needs review'}
-@{revision=$revision;build='local-windows';version='0.1.2';signed=$false;compiler=$vc[0].Name;sdk=$sdkVersion;installer=$installers[0].Name;sha256=(Get-FileHash -Algorithm SHA256 -LiteralPath $installers[0].FullName).Hash.ToLower()} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $EvidenceRoot 'provenance.json') -Encoding utf8
+@{revision=$revision;build='local-windows';version=$version;signed=$false;compiler=$vc[0].Name;sdk=$sdkVersion;installer=$installers[0].Name;sha256=(Get-FileHash -Algorithm SHA256 -LiteralPath $installers[0].FullName).Hash.ToLower()} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $EvidenceRoot 'provenance.json') -Encoding utf8
