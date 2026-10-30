@@ -12,6 +12,10 @@ type Task = {
   status?: string;
   review?: string;
   result?: string;
+  workspace?: string;
+  native_project_id?: string;
+  prompt_state?: string;
+  execution?: { transport?: string; cwd?: string; native_project_id?: string };
 };
 type WorkbenchState = {
   connected?: boolean;
@@ -39,7 +43,7 @@ function WorkbenchPage({ request }: { request: Request }) {
   const currentRequest = useRef(request);
   currentRequest.current = request;
   const [state, setState] = useState<WorkbenchState>({});
-  const [projectRoot, setProjectRoot] = useState("Z:\\Agent HUD");
+  const [projectRoot, setProjectRoot] = useState("");
   const [workbenchRoot, setWorkbenchRoot] = useState("Z:\\Hermes\\workbench");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -121,7 +125,7 @@ function WorkbenchPage({ request }: { request: Request }) {
         </label>
         <div className="workbench-actions">
           <Button
-            disabled={busy}
+            disabled={busy || !projectRoot.trim() || !workbenchRoot.trim()}
             onClick={async () => {
               const value = await act("workbench_connect", {
                 projectRoot,
@@ -336,6 +340,15 @@ function WorkbenchPage({ request }: { request: Request }) {
           <article className="workbench-result">
             <h3>{selected.objective || selected.id}</h3>
             <p>{statuses[selected.status ?? ""] ?? selected.status}</p>
+            <p>项目目录：{state.projectRoot}</p>
+            <p>
+              任务绑定目录：
+              {selected.execution?.native_project_id
+                ? selected.execution.cwd
+                : selected.native_project_id && selected.prompt_state === "sent"
+                  ? selected.workspace
+                  : "尚未核验"}
+            </p>
             <pre>{selected.result || "尚无交付结果"}</pre>
           </article>
         )}
