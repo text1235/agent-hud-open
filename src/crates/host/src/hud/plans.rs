@@ -335,7 +335,9 @@ impl Planner {
             else {
                 continue;
             };
-            if self.configured.get(&id) == Some(&signature) {
+            if self.configured.get(&id) == Some(&signature)
+                && native_placement_current(app, display, &config)
+            {
                 continue;
             }
             match configure_display(app, config, display.clone()) {
@@ -348,9 +350,108 @@ impl Planner {
     }
 }
 
+/// Windows can move a tool window when a monitor sleeps without changing its
+/// settings or the eventual monitor catalogue. Recheck the native frame before
+/// trusting the cached plan, so configure also refreshes input coordinates.
+fn native_placement_current(app: &tauri::AppHandle, display: &Display, config: &HudConfig) -> bool {
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (app, display, config);
+        true
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use tauri::Manager;
+        // A user drag owns placement until drop; the saved plan must not pull it back.
+        let dragging = app
+            .try_state::<super::HudWindows>()
+            .and_then(|windows| {
+                let owner = windows
+                    .0
+                    .lock()
+                    .ok()?
+                    .get(&display.info.screen_id)
+                    .cloned()?;
+                let dragging = owner.state.lock().ok()?.drag.is_some();
+                Some(dragging)
+            })
+            .unwrap_or(false);
+        if dragging {
+            return true;
+        }
+        let Some(window) = app.get_webview_window(&display.info.window_label) else {
+            return !config.visible;
+        };
+        let visible = window.is_visible().unwrap_or(false);
+        let expected = super::edge_frame(display.info.bounds, display.info.scale_factor, config);
+        let actual = window
+            .outer_position()
+            .ok()
+            .zip(window.outer_size().ok())
+            .map(|(p, s)| super::Rect {
+                x: p.x,
+                y: p.y,
+                width: s.width,
+                height: s.height,
+            });
+        placement_matches(config.visible, visible, expected, actual)
+    }
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn placement_matches(
+    wanted_visible: bool,
+    visible: bool,
+    expected: super::Rect,
+    actual: Option<super::Rect>,
+) -> bool {
+    if wanted_visible != visible {
+        return false;
+    }
+    if !wanted_visible {
+        return true;
+    }
+    actual.is_some_and(|actual| {
+        i64::from(actual.x).abs_diff(i64::from(expected.x)) <= 1
+            && i64::from(actual.y).abs_diff(i64::from(expected.y)) <= 1
+            && actual.width.abs_diff(expected.width) <= 1
+            && actual.height.abs_diff(expected.height) <= 1
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unchanged_plan_detects_os_move_resize_or_hidden_window_after_unlock() {
+        let saved = super::super::Rect {
+            x: -940,
+            y: 143,
+            width: 752,
+            height: 864,
+        };
+        assert!(placement_matches(true, true, saved, Some(saved)));
+        assert!(!placement_matches(
+            true,
+            true,
+            saved,
+            Some(super::super::Rect { x: 0, ..saved })
+        ));
+        assert!(!placement_matches(
+            true,
+            true,
+            saved,
+            Some(super::super::Rect {
+                width: 940,
+                ..saved
+            })
+        ));
+        assert!(!placement_matches(true, false, saved, Some(saved)));
+        assert!(!placement_matches(true, true, saved, None));
+        assert!(placement_matches(false, false, saved, None));
+        assert!(!placement_matches(false, true, saved, Some(saved)));
+    }
 
     fn monitor(id: &str, x: i32, y: i32, width: u32, height: u32, primary: bool) -> HudMonitor {
         let bounds = super::super::Rect {
