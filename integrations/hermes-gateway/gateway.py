@@ -14,6 +14,7 @@ import urllib.request
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from observations import observe
+from native_desktop import NativeTransport
 
 ROOT = Path(__file__).resolve().parent
 STATE = ROOT / 'state'
@@ -55,6 +56,8 @@ class Gateway:
         # A crash after starting the CLI may already have queued the message.
         self.db.execute("UPDATE deliveries SET state='uncertain',detail='Interrupted during send; do not replay' WHERE state='sending'")
         self.db.commit()
+
+        self.native = NativeTransport(self)
 
     def event(self, task, kind, detail=''):
         self.db.execute('INSERT INTO events(task,kind,detail,created) VALUES(?,?,?,?)',
@@ -124,7 +127,7 @@ class Gateway:
                 return self.task(tid)
             if name == 'gateway_get_task':
                 task = self.task(a['task_id'])
-                evidence = observe(task['id']) if task['remote'] else {'state': 'unknown'}
+                evidence = (self.native.evidence(task) if (task['remote'] or '').startswith('desktop:') else observe(task['id'])) if task['remote'] else {'state': 'unknown'}
                 task['execution'] = evidence
                 task['transport_status'] = task['status']
                 if evidence['state'] == 'completed' and task['status'] in ('running', 'uncertain'):
@@ -139,7 +142,7 @@ class Gateway:
                 return [dict(r) for r in self.db.execute('SELECT * FROM tasks ORDER BY created DESC LIMIT 100')]
             if name == 'gateway_review':
                 task = self.task(a['task_id'])
-                if task['status'] != 'completed' or a.get('decision') not in ('accepted','rejected') or not a.get('evidence'):
+                if (task['status'] != 'completed' and not (task['status'] == 'failed' and a.get('decision') == 'rejected')) or a.get('decision') not in ('accepted','rejected') or not a.get('evidence'):
                     raise ValueError('只可验收已完成任务，需 accepted/rejected 和验收依据')
                 self.db.execute('UPDATE tasks SET review=?,updated=? WHERE id=?',
                                 (a['decision'],time.time(),a['task_id']))
@@ -323,6 +326,7 @@ class Gateway:
                 self.stop.wait(1)
                 continue
             task = dict(row)
+            native_preparing = False
             try:
                 if task['status'] == 'uncertain' and not task['remote']:
                     self.stop.wait(5)
@@ -347,13 +351,14 @@ class Gateway:
                         f"【验收标准】{task['acceptance']}\n"
                         '仅执行本次用户授权，不读取密钥，不操作其他项目，不转委托Codex或其他智能体。'
                         '禁止强制结束进程；如需额外权限请停止并报告。完成后报告实际文件、验证结果和未完成项。')
-                    result = self.submit_remote(task,message,context)
+                    native_preparing = self.native.enabled(project['path'])
+                    result = self.native.submit(task, project, message) if native_preparing else self.submit_remote(task,message,context)
                     result = result.get('task', result)
                     if not result.get('id'):
                         raise RuntimeError('服务未返回任务ID；需核对，不会自动重复提交')
                     self.update(task['id'],'running',remote=result['id'])
                 else:
-                    result = self.rpc('tasks/get', {'id':task['remote']})
+                    result = self.native.poll(task) if task['remote'].startswith('desktop:') else self.rpc('tasks/get', {'id':task['remote']})
                     result = result.get('task', result)
                 state = result.get('status',{}).get('state','').lower().replace('task_state_','')
                 if state in ('completed','failed','canceled','cancelled','rejected','input-required','auth-required','input_required','auth_required'):
@@ -368,8 +373,14 @@ class Gateway:
                 self.stop.wait(2)
             except Exception as exc:
                 current = self.task(task['id'])
+                if (current['remote'] or '').startswith('desktop:'):
+                    self.native.release(task['id'])
                 if current['status']=='submitting':
-                    self.update(task['id'],'uncertain',result=str(exc))
+                    if native_preparing and not self.native.binding(task['id']):
+                        self.native.release(task['id'])
+                        self.update(task['id'], 'failed', result='Native preparation failed before model submission: '+str(exc))
+                    else:
+                        self.update(task['id'],'uncertain',result=str(exc))
                 else:
                     # Preserve remote ID; retry polling, never resubmit the task.
                     self.update(task['id'], 'uncertain', result='状态查询中断: '+str(exc))
@@ -440,6 +451,7 @@ def serve():
         server.serve_forever()
     finally:
         gateway.stop.set()
+        gateway.native.close()
         worker.join(25)
         notifier.join()
         server.server_close()

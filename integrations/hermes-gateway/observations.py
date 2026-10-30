@@ -5,16 +5,22 @@ from contextlib import closing
 from pathlib import Path
 
 
-def observe(task_id, database=Path(r'Z:\Hermes\data\state.db')):
+def observe(task_id, database=Path(r'Z:\Hermes\data\state.db'), session_id=None):
     if not database.exists():
         return {'state': 'unknown', 'reason': 'session database unavailable'}
     try:
         with closing(sqlite3.connect(database.as_uri() + '?mode=ro', uri=True, timeout=2)) as db:
             db.row_factory = sqlite3.Row
-            anchor = db.execute(
-                "SELECT m.id,m.session_id,m.timestamp FROM messages m JOIN sessions s ON s.id=m.session_id "
-                "WHERE s.source='a2a' AND m.role='user' AND instr(m.content,?)>0 ORDER BY m.id LIMIT 1",
-                ('【任务ID】' + task_id,)).fetchone()
+            if session_id:
+                anchor = db.execute(
+                    "SELECT id,session_id,timestamp FROM messages WHERE session_id=? "
+                    "AND role='user' AND instr(content,?)>0 ORDER BY id LIMIT 1",
+                    (session_id, '【任务ID】' + task_id)).fetchone()
+            else:
+                anchor = db.execute(
+                    "SELECT m.id,m.session_id,m.timestamp FROM messages m JOIN sessions s ON s.id=m.session_id "
+                    "WHERE s.source='a2a' AND m.role='user' AND instr(m.content,?)>0 ORDER BY m.id LIMIT 1",
+                    ('【任务ID】' + task_id,)).fetchone()
             if anchor is None:
                 return {'state': 'unknown', 'reason': 'no matching execution session'}
             next_user = db.execute("SELECT min(id) FROM messages WHERE session_id=? AND role='user' AND id>?",
