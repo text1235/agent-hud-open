@@ -428,7 +428,8 @@ fn transitions(
             if old != Some(status) {
                 let completed = status == "completed";
                 let failed = matches!(status, "failed" | "cancelled");
-                let dispatched = old.is_none() && matches!(status, "queued" | "running");
+                let dispatched =
+                    old.is_none() && matches!(status, "queued" | "submitting" | "running");
                 if completed || failed || dispatched {
                     flights.push(Flight {
                         lane: key.clone(),

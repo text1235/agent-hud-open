@@ -72,6 +72,25 @@ fn flights_describe_real_new_dispatch_delivery_and_failure_only_once() {
 }
 
 #[test]
+fn first_observed_submission_flies_once_before_running_and_delivery() {
+    let submitting = json!({"tasks":[{"id":"new","executor":"hermes","status":"submitting"}]});
+    assert!(transitions(None, &submitting).1.is_empty());
+    let (known, _) = transitions(None, &json!({"tasks":[]}));
+    let (known, flights) = transitions(Some(&known), &submitting);
+    assert_eq!(flights.len(), 1);
+    assert_eq!(flights[0].from, "codex");
+    assert_eq!(flights[0].to, "hermes");
+    let running = json!({"tasks":[{"id":"new","executor":"hermes","status":"running"}]});
+    let (known, flights) = transitions(Some(&known), &running);
+    assert!(flights.is_empty());
+    let completed = json!({"tasks":[{"id":"new","executor":"hermes","status":"completed"}]});
+    let (_, flights) = transitions(Some(&known), &completed);
+    assert_eq!(flights.len(), 1);
+    assert_eq!(flights[0].from, "hermes");
+    assert_eq!(flights[0].to, "codex");
+}
+
+#[test]
 fn antigravity_submission_uses_the_selected_root_fixed_model_and_idempotency_key() {
     let scratch = Scratch::new();
     let selected = Connection {
