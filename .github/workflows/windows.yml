@@ -41,6 +41,12 @@ jobs:
       - run: pnpm run typecheck
       - run: pnpm run test:ts
       - run: pnpm run test:mcp
+      - name: Check existing Gateway native transport
+        run: |
+          python -m unittest discover -s integrations/hermes-gateway -p 'test_*.py'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test integrations/hermes-gateway/desktop_rpc.test.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Prepare resources for Rust checks
         run: New-Item -ItemType Directory -Force src/apps/desktop/src-tauri/resources | Out-Null
       - name: Check and test native Windows adapters

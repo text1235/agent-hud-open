@@ -31,8 +31,14 @@ criteria. Clicking Send performs a real submission. Antigravity always uses
 `gemini-4-argon-high` and the existing desktop service, which verifies its
 native model and project binding. The workbench creates its project-local
 office directory. Hermes remains registered against the business project
-root, and its task boundary names an office under
-`协作办公区/大肥鱼/hud-<request key>`.
+root. For the native-enabled project, the existing Gateway uses Hermes Desktop's
+official project/session APIs before sending any prompt: it verifies the native
+project, actual session cwd and configured Agnes model, persists the session
+mapping, then sends once. Its office is under
+`协作办公区/大肥鱼/hud-<request key>` (the task ID is used for keys that are not
+safe directory names). Other projects retain their original transport. The
+adapter and reversible deployment sources are in `integrations/hermes-gateway`.
+Task details show the bound office only when native binding evidence exists.
 
 The native adapter sends one request and does not retry a submission. The
 form retains its unique request key after an error and locks that submission.
