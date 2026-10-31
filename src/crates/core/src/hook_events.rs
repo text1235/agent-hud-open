@@ -130,6 +130,12 @@ fn claude_moved_on(
 }
 impl HookEvidence {
     pub(crate) fn ingest(&mut self, events: &[HookEvent], now: i64) -> bool {
+        self.ingest_inner(events, now, false)
+    }
+    pub(crate) fn ingest_native_hermes(&mut self, events: &[HookEvent], now: i64) -> bool {
+        self.ingest_inner(events, now, true)
+    }
+    fn ingest_inner(&mut self, events: &[HookEvent], now: i64, native_hermes: bool) -> bool {
         let mut changed = false;
         self.completions
             .retain(|_, at| *at > now.saturating_sub(30 * DAY));
@@ -186,7 +192,10 @@ impl HookEvidence {
                     .is_some_and(|agent| agent.observer.is_some()),
                 "attention" => hooks.is_some_and(|hooks| hooks.attention),
                 "compaction" => hooks.is_some_and(|hooks| hooks.compaction.is_some()),
-                "completion" => COMPLETION_SOURCES.contains(&event.source.as_str()),
+                "completion" => {
+                    COMPLETION_SOURCES.contains(&event.source.as_str())
+                        || (native_hermes && event.source == "hermes")
+                }
                 _ => false,
             };
             if !supported {
@@ -456,10 +465,20 @@ impl HookEvidence {
                 && last_event.is_none_or(|at| e.at_ms > at)
                 && date(&session["liveFacts"]["turnStartedAt"]).is_none_or(|at| e.at_ms >= at)
         }) {
+            if completion.source == "hermes" && session["navigationTarget"].is_null() {
+                session["navigationTarget"] = completion.data["navigationTarget"].clone();
+            }
             session["state"] = json!("idle");
             advance(session, completion.at_ms);
             let facts = facts(session);
             facts["turnId"] = completion.data["turnId"].clone();
+            if completion.source == "hermes" {
+                facts["turnStartedAt"] = completion.data["startedAtMs"]
+                    .as_i64()
+                    .map(iso)
+                    .unwrap_or(Value::Null);
+                facts["message"] = completion.data["message"].clone();
+            }
             facts["outcome"] = json!("completed");
             facts["endedAt"] = iso(completion.at_ms);
             facts["activity"] = Value::Null;
@@ -525,6 +544,15 @@ impl HookEvidence {
                     session_title::display(&event.source, &event.session_id, &naming, cwd, None);
                 let at = iso(event.at_ms);
                 let mut session = json!({"id":event.session_id,"source":event.source,"title":label,"model":event.data["model"].as_str().unwrap_or("Unknown"),"cwd":cwd,"updatedAt":at,"lastMessageAt":at,"state":"idle","tokens":0,"cost":null,"contextPercent":null,"logPath":null,"parentId":null,"usageStatus":"unavailable","evidence":"completion-hook","liveFacts":{"turnId":event.data["turnId"],"turnStartedAt":null,"outcome":"completed","endedAt":at,"limitedUntil":null,"observedAt":at,"lastEventAt":at,"activity":null,"requests":[]}});
+                if event.source == "hermes" {
+                    session["evidence"] = json!("native-session-database");
+                    session["navigationTarget"] = event.data["navigationTarget"].clone();
+                    session["liveFacts"]["message"] = event.data["message"].clone();
+                    session["liveFacts"]["turnStartedAt"] = event.data["startedAtMs"]
+                        .as_i64()
+                        .map(iso)
+                        .unwrap_or(Value::Null);
+                }
                 self.overlay(&mut session, now, Some(event.at_ms), None);
                 // No log names its prompts: the reports do, else the client's
                 // one interface.
@@ -552,6 +580,26 @@ impl HookEvidence {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hermes_completion_requires_the_internal_database_reader() {
+        let at = 1_792_470_000_000i64;
+        let event = HookEvent {
+            source: "hermes".into(),
+            session_id: "hermes:20261031_test".into(),
+            at_ms: at,
+            kind: "completion".into(),
+            data: json!({"turnId":"message-1","message":"done","startedAtMs":at-1000,"navigationTarget":{"kind":"hermes-session","id":"20261031_test"}}),
+        };
+        let mut evidence = HookEvidence::default();
+        assert!(!evidence.ingest(std::slice::from_ref(&event), at));
+        assert!(evidence.ingest_native_hermes(std::slice::from_ref(&event), at));
+        let sessions = evidence.extra_sessions(at, 1, &HashSet::new());
+        assert_eq!(sessions[0]["liveFacts"]["message"], "done");
+        assert_eq!(sessions[0]["navigationTarget"]["id"], "20261031_test");
+        assert_eq!(sessions[0]["evidence"], "native-session-database");
+        assert!(!evidence.ingest_native_hermes(&[event], at));
+    }
 
     fn observation(state: &str, at: i64) -> HookEvent {
         HookEvent {

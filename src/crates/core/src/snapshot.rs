@@ -48,6 +48,7 @@ impl crate::AgentHudCore {
     /// The reading half of a collection pass: new log lines, the indexes the
     /// session list joins, and the notice the snapshot carries.
     pub(crate) fn collect(&mut self) {
+        self.read_hermes_completions();
         let previous_pending = self.reads.pending.len();
         let notice = self.scan().err();
         if previous_pending != self.reads.pending.len() {

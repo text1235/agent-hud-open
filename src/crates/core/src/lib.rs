@@ -23,6 +23,7 @@ mod data_version;
 mod database;
 pub mod demo;
 mod discovery;
+mod hermes_completions;
 mod hook_events;
 mod ingestion;
 mod island_events;
@@ -77,6 +78,7 @@ pub(crate) const MAX_LINE: usize = 1024 * 1024;
 pub struct AgentHudCore {
     requests: requests::Requests,
     hook_events: hook_events::HookEvidence,
+    hermes_completions: hermes_completions::Reader,
     island_events: island_events::Tracker,
     source_notice: Option<String>,
     provider_roots: Vec<(PathBuf, &'static str)>,
@@ -203,6 +205,7 @@ impl AgentHudCore {
         Self {
             requests,
             hook_events: hook_events::HookEvidence::default(),
+            hermes_completions: hermes_completions::Reader::default(),
             island_events: island_events::Tracker::new(),
             source_notice: None,
             provider_roots: roots
