@@ -4,6 +4,7 @@ from pathlib import Path
 from urllib.request import Request,build_opener,ProxyHandler
 ROOT=Path(__file__).resolve().parent
 SPECS={
+ 'antigravity_models':('实时只读查询桌面模型及额度。自动派工优先有额度模型，剩余≤10%时切换；余额未知不当作可用。','models',{}),
  'workbench_status':('查询双执行端工作台状态、项目和任务，不执行业务。','state',{}),
  'antigravity_get_task':('读取本工作台派给Antigravity桌面会话的任务、办公区、会话ID及执行动态。','task',{'task_id':{'type':'string'}}),
  'antigravity_submit':('默认派发到Antigravity桌面原生会话，禁止回退CLI。workspace填实际项目根目录，自动在项目内分配办公区；显式办公区可配project_root。提供范围、验收和唯一请求键，完成后独立核验，禁止递归转派。','submit',
@@ -15,7 +16,7 @@ for line in sys.stdin:
  try:
   r=json.loads(line)
   if 'id' not in r:continue
-  if r['method']=='initialize':result=dict(protocolVersion='2024-11-05',capabilities={'tools':{}},serverInfo=dict(name='collaboration-workbench',version='0.2.0'))
+  if r['method']=='initialize':result=dict(protocolVersion='2024-11-05',capabilities={'tools':{}},serverInfo=dict(name='collaboration-workbench',version='0.3.0'))
   elif r['method']=='tools/list':result={'tools':[dict(name=n,description=s[0],inputSchema=dict(type='object',properties=s[2],required=[k for k in s[2] if k not in ('model','parent_id','project_root')],additionalProperties=False)) for n,s in SPECS.items()]}
   elif r['method']=='tools/call':
    p=r['params']; spec=SPECS[p['name']];a=p.get('arguments',{})

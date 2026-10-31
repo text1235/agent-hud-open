@@ -5,7 +5,9 @@ from urllib.parse import unquote, urlparse
 from urllib.request import Request, build_opener, ProxyHandler
 from urllib.error import HTTPError
 
-DEFAULT_MODEL='gemini-4-argon-high'
+from model_routing import catalogue, select_model
+
+DEFAULT_MODEL='auto'
 
 def canonical(path):
     return os.path.normcase(str(Path(path).resolve(strict=True)))
@@ -97,11 +99,10 @@ class Desktop:
 
     def model(self,requested):
         models=self.request('GetCascadeModelConfigData',{}).get('clientModelConfigs',[])
-        matches=[m for m in models if m.get('modelId')==requested]
-        if len(matches)!=1 or not matches[0].get('modelOrAlias',{}).get('model'):
-            raise ValueError('桌面模型目录中找不到精确模型 '+requested+'；未静默替换')
-        m=matches[0]
-        return {'id':requested,'native_model':m['modelOrAlias']['model'],'label':m.get('label',requested)}
+        return select_model(models,requested)
+
+    def models(self):
+        return catalogue(self.request('GetCascadeModelConfigData',{}).get('clientModelConfigs',[]))
 
     def ensure_project(self,root):
         root=Path(root).resolve(strict=True)

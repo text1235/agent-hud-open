@@ -17,7 +17,7 @@ DB.executescript('''CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY, worksp
  CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY,task TEXT,kind TEXT,text TEXT,created REAL);''')
 if 'parent' not in [r[1] for r in DB.execute('PRAGMA table_info(tasks)')]:
     DB.execute('ALTER TABLE tasks ADD COLUMN parent TEXT')
-for column in ('project_root','transport','conversation_id','native_project_id','native_model','prompt_state'):
+for column in ('project_root','transport','conversation_id','native_project_id','native_model','prompt_state','requested_model'):
     if column not in [r[1] for r in DB.execute('PRAGMA table_info(tasks)')]:
         DB.execute('ALTER TABLE tasks ADD COLUMN '+column+' TEXT')
 DB.execute("UPDATE tasks SET status='uncertain' WHERE status='running'")
@@ -63,7 +63,8 @@ def run(task,recover=False):
             model=client.model(task['model'])
             project=client.ensure_project(task['project_root'])
             native_model=model['native_model'];cid=task['conversation_id']
-            fields(task['id'],native_project_id=project['id'],native_model=native_model)
+            fields(task['id'],native_project_id=project['id'],native_model=native_model,model=model['id'])
+            event(task['id'],'model_selection',json.dumps(model,ensure_ascii=False))
             event(task['id'],'desktop_binding',json.dumps(dict(project=project,workspace=task['workspace'],
                       conversation_id=cid,model=model),ensure_ascii=False))
             client.start(cid,project,model,'Codex派工 · '+Path(task['project_root']).name+' · '+task['objective'][:32])
@@ -95,6 +96,8 @@ def run(task,recover=False):
         with LOCK:ACTIVE.pop(task['id'],None)
 
 def dispatch(name,a):
+    if name=='models':
+        return dict(version='0.3.0',low_quota_fraction=0.10,models=Desktop(STATE).models())
     if name=='state':
         try:projects=hermes('gateway_list_projects');tasks=hermes('gateway_list_tasks');online=True
         except Exception:projects=[];tasks=[];online=False
@@ -107,7 +110,7 @@ def dispatch(name,a):
         return dict(projects=projects,tasks=sorted(tasks,key=lambda t:t['created'],reverse=True),
                     executors=[dict(id='codex',name='Codex',role='派工与独立验收',state='当前聊天'),
                     dict(id='hermes',name='大肥鱼',role='本地执行',state='已连接' if online else '未连接'),
-                    dict(id='antigravity',name='Antigravity',role='桌面原生会话 · Gemini 4 Argon High',state='桌面默认；派工时实时核验',transport='antigravity-desktop')])
+                    dict(id='antigravity',name='Antigravity',role='桌面原生会话 · 按额度选择模型',state='v0.3.0 · 派工前实时查额度，≤10%自动切换',transport='antigravity-desktop')])
     if name=='task':
         if a['executor']=='hermes':return hermes('gateway_get_task',task_id=a['task_id'])
         with LOCK:
@@ -130,7 +133,7 @@ def dispatch(name,a):
             old=DB.execute('SELECT * FROM tasks WHERE request_key=?',(a['request_key'],)).fetchone()
             if old:
                 root,office=office_paths(str(path),a.get('project_root'),old['id']) if old['transport'] else (str(path),str(path))
-                if any(old[k]!=a[k] for k in ('objective','boundary','acceptance')) or old['workspace']!=office or old['parent']!=a.get('parent_id') or (a.get('model') and old['model']!=a['model']):raise ValueError('重复标识对应不同任务')
+                if any(old[k]!=a[k] for k in ('objective','boundary','acceptance')) or old['workspace']!=office or old['parent']!=a.get('parent_id') or (a.get('model') and (old['requested_model'] or old['model'])!=a['model']):raise ValueError('重复标识对应不同任务')
                 return dict(old)
             if ACTIVE:raise ValueError('Antigravity 正在执行任务，完成后再派工')
             if DB.execute("SELECT 1 FROM tasks WHERE transport='antigravity-desktop' AND status IN ('running','waiting_approval','uncertain') LIMIT 1").fetchone():
@@ -143,8 +146,8 @@ def dispatch(name,a):
                     raise ValueError('返工须关联本项目已经结束的任务')
             model=a.get('model') or DEFAULT_MODEL
             Path(office).mkdir(parents=True,exist_ok=True)
-            DB.execute('INSERT INTO tasks(id,workspace,objective,boundary,acceptance,model,status,created,request_key,review,parent,project_root,transport,conversation_id,prompt_state) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-                       (tid,office,a['objective'],a['boundary'],a['acceptance'],model,'running',time.time(),a['request_key'],'pending',a.get('parent_id'),root,'antigravity-desktop',str(uuid.uuid4()),'not_sent'))
+            DB.execute('INSERT INTO tasks(id,workspace,objective,boundary,acceptance,model,status,created,request_key,review,parent,project_root,transport,conversation_id,prompt_state,requested_model) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                       (tid,office,a['objective'],a['boundary'],a['acceptance'],model,'running',time.time(),a['request_key'],'pending',a.get('parent_id'),root,'antigravity-desktop',str(uuid.uuid4()),'not_sent',model))
             DB.commit()
             task=dict(DB.execute('SELECT * FROM tasks WHERE id=?',(tid,)).fetchone())
             # Reserve before spawning to keep concurrent requests serialized.
