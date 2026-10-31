@@ -22,7 +22,9 @@ Codex 负责理解需求、选择执行端、限定权限、审查成果和最�
 
 ## Antigravity：现有协作工作台
 
-使用现有 `collaboration_workbench` MCP 的 `workbench_status`、`antigravity_submit`、`antigravity_get_task`、`antigravity_review`。工作台位于 `Z:/Hermes/workbench`。明确实际项目绝对根目录、办公区、具体目标、边界、验收标准和唯一 `request_key`，固定模型 `gemini-4-argon-high`；保留桌面原生审批，核对真实桌面会话的项目和模型，连接失败时按实际错误处理。返工用 `parent_id` 关联本轮任务。
+使用现有 `collaboration_workbench` MCP 的 `workbench_status`、`antigravity_submit`、`antigravity_get_task`、`antigravity_review`；可用时通过 `antigravity_models` 查看实时目录和额度。工作台位于 `Z:/Hermes/workbench`。明确实际项目绝对根目录、办公区、具体目标、边界、验收标准和唯一 `request_key`。默认 `model=auto`：派工前实时检查模型可用性和额度；Argon High 余额高于 10% 时优先使用，降到 10% 或以下时优先切到有额度的 3.8 Flash High 等模型。目录缺失、禁用或余额未知不当作可用；没有余额高于 10% 的可用模型就停止发送。记录请求模型、实际模型、额度与切换原因，核对真实桌面会话的项目和执行模型，保留原生审批。返工用 `parent_id` 关联本轮任务；发送状态未知时先查原任务，不能换模型重复发送。
+
+所有执行端都要先检查实际服务和模型是否可用；不能把历史可用当作本次已验证。大肥鱼优先 Mercury 3 私有网关 / high；接口不提供余额时如实记为未知，不能编造额度。有明确额度或模型不可用错误时，在核实原任务已终止后才选择已配置且获授权的可用模型或执行端，保留原项目、权限及验收边界，不新建账号或修改计费设置。
 
 在当前活动轮跟踪至交付和验收。Codex 独立检查实际文件并执行适当验证，记录 `accepted/rejected` 及证据；`SUCCESS/completed` 或执行端自述不能代替验收。接口没有与 Hermes 等同的原聊天终态唤醒绑定，按真实能力报告，不声称已设置自动唤醒。未知状态先读取原任务，避免重复提交。
 
