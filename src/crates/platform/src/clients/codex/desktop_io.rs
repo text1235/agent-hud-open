@@ -10,13 +10,13 @@ use std::{
 #[cfg(unix)]
 mod unix;
 #[cfg(unix)]
-pub use unix::{endpoint, LocalSocket};
+pub use unix::{endpoint, LocalSocket, ShutdownHandle};
 #[cfg(unix)]
 use unix::{random as fill_random, Frame};
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
-pub use windows::{endpoint, LocalSocket};
+pub use windows::{endpoint, LocalSocket, ShutdownHandle};
 #[cfg(windows)]
 use windows::{random as fill_random, Frame};
 
@@ -76,6 +76,10 @@ impl DesktopIpc {
     }
     pub fn renew(&mut self, timeout: Duration) {
         self.socket.renew(timeout);
+    }
+    /// Interrupt an observer's pending read/write without waiting for its deadline.
+    pub fn shutdown_handle(&self) -> Result<ShutdownHandle, IpcError> {
+        self.socket.shutdown_handle()
     }
     pub fn wait_for_message(&self, timeout: Duration) -> Result<bool, IpcError> {
         self.socket.wait_for_message(timeout)

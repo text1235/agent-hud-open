@@ -1,11 +1,6 @@
 use super::*;
 use agent_hud_agents::codex::AGENT;
 use serde_json::json;
-use std::{
-    fs,
-    io::{Read, Write},
-    os::unix::net::{UnixListener, UnixStream},
-};
 
 const THREAD: &str = "00000000-0000-4000-8000-000000000001";
 fn permission(connector: &str, persist: Value) -> Value {
@@ -114,6 +109,45 @@ fn native_cards_say_what_allowing_keeps_as_open_words_it() {
     );
 }
 #[test]
+fn newest_question_batch_never_replays_an_older_unanswered_prompt() {
+    let mut state = snapshot(vec![]);
+    let newest_key = serde_json::to_string(&json!(["request_user_input_async", "new", 0])).unwrap();
+    state["turns"] = json!([{"turnId":"turn-fixture","status":"inProgress","items":[
+        {"type":"agentMessage","id":"old","questions":[{"title":"Obsolete test","options":["Old"]}]},
+        {"type":"agentMessage","id":"new","questions":[{"title":"Current test","options":["Current"]}]}
+    ]}]);
+    let found = pending::parse(&state, THREAD, "owner").unwrap();
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].request_id, newest_key);
+    let reply = format!(
+        "<send_user_message_question_reply>{}</send_user_message_question_reply>",
+        json!([{"questionItemId":newest_key,"question":"Current test","answer":"Current"}])
+    );
+    state["turns"][0]["items"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"type":"userMessage","content":[{"type":"text","text":reply}]}));
+    assert!(pending::parse(&state, THREAD, "owner").unwrap().is_empty());
+    // A fresh observer after restart makes the same choice; no in-memory dismissal is required.
+    assert!(pending::parse(&state.clone(), THREAD, "owner")
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
+fn latest_batch_keeps_all_of_its_questions() {
+    let mut state = snapshot(vec![]);
+    state["turns"] = json!([{"turnId":"turn-fixture","status":"inProgress","items":[
+        {"type":"agentMessage","id":"old","questions":[{"title":"Old"}]},
+        {"type":"agentMessage","id":"new","questions":[{"title":"One"},{"title":"Two"}]}
+    ]}]);
+    let found = pending::parse(&state, THREAD, "owner").unwrap();
+    assert_eq!(found.len(), 2);
+    assert_eq!(found[0].question.as_ref().unwrap().0, "One");
+    assert_eq!(found[1].question.as_ref().unwrap().0, "Two");
+}
+
+#[test]
 fn canonical_async_question_answer_and_explicit_settlement() {
     let mut state = snapshot(vec![]);
     state["turnHistory"] = json!({"kind":"canonical","history":{"islands":[{"entries":[{"value":"key"}]}],"entitiesByKey":{"key":{"turnId":"turn-fixture","status":"inProgress","items":[{"type":"agentMessage","id":"message","questions":[{"title":"Pick one","options":["First","Second"]}]}]}}}});
@@ -152,171 +186,104 @@ fn immer_patch_operations_follow_source() {
     )
     .is_err());
 }
-fn read(socket: &mut UnixStream) -> Value {
-    let mut size = [0; 4];
-    socket.read_exact(&mut size).unwrap();
-    let mut bytes = vec![0; u32::from_le_bytes(size) as usize];
-    socket.read_exact(&mut bytes).unwrap();
-    serde_json::from_slice(&bytes).unwrap()
-}
-fn send(socket: &mut UnixStream, value: Value) {
-    let data = serde_json::to_vec(&value).unwrap();
-    socket
-        .write_all(&(data.len() as u32).to_le_bytes())
-        .unwrap();
-    socket.write_all(&data).unwrap();
-}
-fn response(socket: &mut UnixStream, request: &Value, result: Value) {
-    send(
-        socket,
-        json!({"type":"response","requestId":request["requestId"],"resultType":"success","handledByClientId":"owner","result":result}),
-    );
-}
-fn wait(mut condition: impl FnMut() -> bool) {
-    let end = Instant::now() + Duration::from_secs(4);
-    while !condition() {
-        assert!(Instant::now() < end, "fixture deadline");
-        thread::sleep(Duration::from_millis(5));
-    }
-}
+
+#[cfg(unix)]
+mod unix;
+#[cfg(windows)]
+mod windows;
+
 #[test]
-fn observer_owned_reply_settle_and_disconnect_fixture() {
-    for uncertain in [false, true] {
-        // No prefix, one-letter names: the IPC socket path must stay short
-        // under macOS's long temporary folder.
-        let temporary = tempfile::Builder::new().prefix("").tempdir().unwrap();
-        let directory = temporary.path().join(if uncertain { "u" } else { "c" });
-        let _ = fs::remove_dir_all(&directory);
-        fs::create_dir_all(directory.join("ipc")).unwrap();
-        let listener = UnixListener::bind(directory.join("ipc/ipc.sock")).unwrap();
-        let requests = Requests::default();
-        let mut observer =
-            CodexDesktopObserver::start(directory.clone(), requests.clone(), Arc::new(|| {}))
-                .unwrap();
-        let (go, ready) = std::sync::mpsc::channel();
-        let (done, ended) = std::sync::mpsc::channel();
-        let worker = thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            stream
-                .set_read_timeout(Some(Duration::from_secs(4)))
-                .unwrap();
-            let init = read(&mut stream);
-            response(&mut stream, &init, json!({"clientId":"stream-client"}));
-            let discovery = read(&mut stream);
-            assert_eq!(discovery["method"], "thread-owner-discovery");
-            response(&mut stream, &discovery, json!({}));
-            assert_eq!(read(&mut stream)["params"]["following"], true);
-            let mut state = snapshot(vec![permission(
-                "computer-use",
-                json!(["session", "always"]),
-            )]);
-            state["largeToolResult"] = json!("x".repeat(2 * 1024 * 1024));
-            send(
-                &mut stream,
-                json!({"type":"broadcast","method":"thread-stream-state-changed","version":11,"sourceClientId":"owner","params":{"hostId":"local","conversationId":THREAD,"change":{"type":"snapshot","revision":1,"conversationState":state}}}),
-            );
-            let (mut answer, _) = listener.accept().unwrap();
-            let init = read(&mut answer);
-            response(&mut answer, &init, json!({"clientId":"answer-client"}));
-            let discovery = read(&mut answer);
-            response(&mut answer, &discovery, json!({}));
-            let mutation = read(&mut answer);
-            assert_eq!(mutation["method"], pending::ELICITATION_METHOD);
-            assert_eq!(mutation["targetClientId"], "owner");
-            assert_eq!(mutation["params"]["requestId"], 7);
-            assert_eq!(mutation["params"]["response"]["_meta"]["persist"], "always");
-            if uncertain {
-                drop(answer);
-            } else {
-                response(
-                    &mut answer,
-                    &mutation,
-                    json!({"method":pending::ELICITATION_METHOD,"result":{"ok":true}}),
-                );
-            }
-            ready.recv_timeout(Duration::from_secs(4)).unwrap();
-            send(
-                &mut stream,
-                json!({"type":"broadcast","method":"thread-stream-state-changed","version":11,"sourceClientId":"owner","params":{"hostId":"local","conversationId":THREAD,"change":{"type":"patches","baseRevision":1,"revision":2,"patches":[{"op":"replace","path":["requests"],"value":[]}]}}}),
-            );
-            done.send(()).unwrap();
-        });
-        // A CLI thread in flight is not followed; a Desktop thread is.
-        observer.update_sessions(&[json!({"id":THREAD,"source":AGENT.id,"state":"running"})]);
-        assert!(observer.shared.wanted().is_empty());
-        // Another app-server client's thread opens in Codex, but Desktop does
-        // not hold it.
-        observer.update_sessions(&[json!({"id":THREAD,"source":AGENT.id,"state":"running","client":"codex_ask","navigationTarget":{"kind":"codex-thread","id":THREAD}})]);
-        assert!(observer.shared.wanted().is_empty());
-        observer.update_sessions(&[json!({"id":THREAD,"source":AGENT.id,"state":"running","navigationTarget":{"kind":"codex-thread","id":THREAD}})]);
-        wait(|| requests.views(crate::hooks::now_ms()).len() == 1);
-        assert!(
-            observer.shared.state.lock().unwrap().known[THREAD].state["largeToolResult"].is_null()
-        );
-        let id = requests.views(crate::hooks::now_ms())[0]["id"]
-            .as_str()
-            .unwrap()
-            .to_string();
-        requests
-            .answer(&id, &json!({"kind":"always"}), crate::hooks::now_ms())
-            .unwrap();
-        wait(|| {
-            requests
-                .deliveries(crate::hooks::now_ms())
-                .iter()
-                .any(|row| {
-                    row["id"] == id
-                        && row["state"] == if uncertain { "uncertain" } else { "confirmed" }
-                })
-        });
-        go.send(()).unwrap();
-        ended.recv_timeout(Duration::from_secs(4)).unwrap();
-        worker.join().unwrap();
-        wait(|| requests.views(crate::hooks::now_ms()).is_empty());
-        observer.stop();
-        assert!(requests
-            .answer(&id, &json!({"kind":"allow"}), crate::hooks::now_ms())
-            .is_err());
-        fs::remove_dir_all(directory).unwrap();
-    }
+fn questions_only_does_not_expose_approval_cards() {
+    let requests = Requests::default();
+    let mut observer = CodexDesktopObserver::start_at(
+        PathBuf::from("unused-fixture-endpoint"),
+        requests.clone(),
+        Arc::new(|| {}),
+    )
+    .unwrap();
+    observer.set_questions_only(true);
+    let state = snapshot(vec![permission("computer-use", json!(["session"]))]);
+    observer.shared.reconcile(THREAD, "owner", state);
+    assert!(requests.views(crate::hooks::now_ms()).is_empty());
+    observer.set_questions_only(false);
+    assert_eq!(requests.views(crate::hooks::now_ms()).len(), 1);
+    observer.set_questions_only(true);
+    assert!(requests.views(crate::hooks::now_ms()).is_empty());
+    let old = snapshot(vec![permission("computer-use", json!(["session"]))]);
+    let approval = pending::parse(&old, THREAD, "owner").unwrap().remove(0);
+    assert!(matches!(
+        observer.shared.resolve(&approval, &json!({"kind":"allow"})),
+        Err(ReplyFailure::Cancelled)
+    ));
+    let newer = snapshot(vec![]);
+    observer.shared.reconcile(THREAD, "owner", newer.clone());
+    observer.set_questions_only(false);
+    observer.shared.reconcile_state(THREAD, "owner", old, true);
+    assert_eq!(
+        observer.shared.state.lock().unwrap().known[THREAD].state,
+        newer
+    );
+    assert!(requests.views(crate::hooks::now_ms()).is_empty());
+    observer.stop();
 }
 
 #[test]
-fn native_waiting_is_phase_only_and_clears_on_disconnect_and_stop() {
-    let temporary = tempfile::Builder::new().prefix("").tempdir().unwrap();
-    let directory = temporary.path().join("w");
-    let requests = Requests::default();
-    let mut observer =
-        CodexDesktopObserver::start(directory, requests.clone(), Arc::new(|| {})).unwrap();
+fn receipt_matches_the_desktop_router_envelope_and_exact_question_turn() {
     let mut state = snapshot(vec![]);
-    state["threadRuntimeStatus"] = json!({"type":"active","activeFlags":["waitingOnApproval"]});
-    observer.shared.reconcile(THREAD, "owner", state.clone());
-    assert!(requests
-        .native_waiting_sessions()
-        .get(AGENT.id)
-        .is_some_and(|sessions| sessions.contains(THREAD)));
-    assert!(requests.views(crate::hooks::now_ms()).is_empty());
-    let revision = requests.revision();
-    observer.shared.reconcile(THREAD, "owner", state.clone());
-    assert_eq!(requests.revision(), revision);
-    state["threadRuntimeStatus"]["activeFlags"] = json!(["waitingOnUserInput"]);
-    state.as_object_mut().unwrap().remove("requests");
-    observer.shared.reconcile(THREAD, "owner", state.clone()); // waiting is known even if no supported cards can be decoded
-    assert!(requests
-        .native_waiting_sessions()
-        .get(AGENT.id)
-        .is_some_and(|sessions| sessions.contains(THREAD)));
-    assert!(requests.views(crate::hooks::now_ms()).is_empty());
-    observer.shared.forget_connection();
-    assert!(requests
-        .native_waiting_sessions()
-        .get(AGENT.id)
-        .is_none_or(|sessions| sessions.is_empty()));
-    observer.shared.reconcile(THREAD, "owner", state);
-    observer.stop();
-    assert!(requests
-        .native_waiting_sessions()
-        .get(AGENT.id)
-        .is_none_or(|sessions| sessions.is_empty()));
-    assert!(requests.views(crate::hooks::now_ms()).is_empty());
+    state["turnHistory"] = json!({"kind":"canonical","history":{"islands":[{"entries":[{"value":"key"}]}],"entitiesByKey":{"key":{"turnId":"turn-fixture","status":"inProgress","items":[{"type":"agentMessage","id":"message","questions":[{"title":"Pick one","options":["First","Second"]}]}]}}}});
+    let item = pending::parse(&state, THREAD, "owner").unwrap().remove(0);
+    let method = "thread-follower-steer-turn";
+    let receipt = json!({"type":"response","requestId":"correlated-in-transport","resultType":"success","method":method,"handledByClientId":"owner","result":{"result":{"turnId":"turn-fixture"}}});
+    assert!(confirm_receipt(&item, method, &receipt).is_ok());
+    for (field, value) in [
+        ("handledByClientId", "other-owner"),
+        ("method", "other-method"),
+    ] {
+        let mut wrong = receipt.clone();
+        wrong[field] = json!(value);
+        assert!(matches!(
+            confirm_receipt(&item, method, &wrong),
+            Err(ReplyFailure::Uncertain(_))
+        ));
+    }
+    for turn in [json!("another-turn"), json!(""), Value::Null] {
+        let mut wrong = receipt.clone();
+        wrong["result"]["result"]["turnId"] = turn;
+        assert!(matches!(
+            confirm_receipt(&item, method, &wrong),
+            Err(ReplyFailure::Uncertain(_))
+        ));
+    }
+    let invented_nested_envelope = json!({"handledByClientId":"owner","result":{"method":method,"result":{"result":{"turnId":"turn-fixture"}}}});
+    assert!(matches!(
+        confirm_receipt(&item, method, &invented_nested_envelope),
+        Err(ReplyFailure::Uncertain(_))
+    ));
+    let mut missing_expected_turn = item;
+    missing_expected_turn.turn_id = None;
+    assert!(matches!(
+        confirm_receipt(&missing_expected_turn, method, &receipt),
+        Err(ReplyFailure::Uncertain(_))
+    ));
+}
+
+#[test]
+fn approval_receipt_requires_an_explicit_success_from_the_same_owner_and_method() {
+    let state = snapshot(vec![permission("computer-use", json!(["session"]))]);
+    let item = pending::parse(&state, THREAD, "owner").unwrap().remove(0);
+    let method = pending::ELICITATION_METHOD;
+    let receipt = json!({"method":method,"handledByClientId":"owner","result":{"ok":true}});
+    assert!(confirm_receipt(&item, method, &receipt).is_ok());
+    for result in [
+        json!({"ok":false}),
+        json!({}),
+        json!({"result":{"ok":true}}),
+    ] {
+        let mut wrong = receipt.clone();
+        wrong["result"] = result;
+        assert!(matches!(
+            confirm_receipt(&item, method, &wrong),
+            Err(ReplyFailure::Uncertain(_))
+        ));
+    }
 }

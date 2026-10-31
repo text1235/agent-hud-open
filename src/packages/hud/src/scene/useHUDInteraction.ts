@@ -137,13 +137,13 @@ export function useHUDInteraction({
         collapse();
         if (pointerInside && !suppressHover.current && !dragVisual) enter();
       }
-      // On a separated dock, only permission requests force open; completion/quota/reset-credits
-      // start collapsed as a compact pill until hovered or clicked.
+      // Questions open for answering; other requests force open on separated docks.
+      // Completion/quota/reset-credits stay compact until hovered or clicked.
       if (
         request &&
         !dragCandidate.current?.started &&
-        config.mode !== "notch" &&
-        config.separatesAgents
+        (request.kind === "question" ||
+          (config.mode !== "notch" && config.separatesAgents))
       ) {
         forceOpen();
       }

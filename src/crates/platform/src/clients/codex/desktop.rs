@@ -1,11 +1,15 @@
 //! Public native approvals/questions only. This observer shares generic Desktop
 //! framing with other users, but never starts/resumes a conversation or engine.
+#[cfg(unix)]
+mod daemon;
+#[cfg(windows)]
+#[path = "desktop_windows.rs"]
 mod daemon;
 mod pending;
 mod stream;
 pub(crate) use daemon::daemon_tui_origin_for as daemon_tui_origin;
 
-use super::desktop_io::{DesktopIpc, IpcError};
+use super::desktop_io::{self, DesktopIpc, IpcError, ShutdownHandle};
 use crate::hooks::Wake;
 use agent_hud_agents::codex::AGENT;
 use agent_hud_core::l10n;
@@ -14,8 +18,6 @@ use pending::Pending;
 use serde_json::Value;
 use std::{
     collections::HashMap,
-    net::Shutdown,
-    os::unix::net::UnixStream,
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -37,16 +39,17 @@ struct State {
     reported: HashMap<String, Instant>,
     known: HashMap<String, ThreadState>,
     pending: HashMap<String, LivePending>,
-    connection: Option<UnixStream>,
-    answer_connections: HashMap<String, UnixStream>,
+    connection: Option<ShutdownHandle>,
+    answer_connections: HashMap<String, ShutdownHandle>,
 }
 struct Shared {
     active: AtomicBool,
+    questions_only: AtomicBool,
     state: Mutex<State>,
     changed: Condvar,
     requests: Requests,
     wake: Wake,
-    data: PathBuf,
+    endpoint: PathBuf,
 }
 
 pub struct CodexDesktopObserver {
@@ -58,8 +61,12 @@ impl CodexDesktopObserver {
         if !data_directory.is_absolute() {
             return Err("Codex data directory must be absolute".into());
         }
+        Self::start_at(desktop_io::endpoint(&data_directory), requests, wake)
+    }
+    fn start_at(endpoint: PathBuf, requests: Requests, wake: Wake) -> Result<Self, String> {
         let shared = Arc::new(Shared {
             active: AtomicBool::new(true),
+            questions_only: AtomicBool::new(false),
             state: Mutex::new(State {
                 reported: HashMap::new(),
                 known: HashMap::new(),
@@ -70,7 +77,7 @@ impl CodexDesktopObserver {
             changed: Condvar::new(),
             requests,
             wake,
-            data: data_directory,
+            endpoint,
         });
         let owned = shared.clone();
         let worker = thread::Builder::new()
@@ -81,6 +88,30 @@ impl CodexDesktopObserver {
             shared,
             worker: Some(worker),
         })
+    }
+    pub fn set_questions_only(&self, enabled: bool) {
+        let states = {
+            let state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
+            self.shared.questions_only.store(enabled, Ordering::Release);
+            if enabled {
+                for (id, pending) in &state.pending {
+                    if pending.item.question.is_none() {
+                        if let Some(connection) = state.answer_connections.get(id) {
+                            let _ = connection.shutdown();
+                        }
+                    }
+                }
+            }
+            state
+                .known
+                .iter()
+                .map(|(id, known)| (id.clone(), known.owner.clone(), known.state.clone()))
+                .collect::<Vec<_>>()
+        };
+        for (id, owner, state) in states {
+            self.shared.reconcile_state(&id, &owner, state, true);
+        }
+        (self.shared.wake)();
     }
     pub fn update_sessions(&self, sessions: &[Value]) {
         let now = Instant::now();
@@ -122,10 +153,10 @@ impl CodexDesktopObserver {
         {
             let mut state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
             if let Some(socket) = state.connection.take() {
-                let _ = socket.shutdown(Shutdown::Both);
+                let _ = socket.shutdown();
             }
             for socket in state.answer_connections.values() {
-                let _ = socket.shutdown(Shutdown::Both);
+                let _ = socket.shutdown();
             }
             state.answer_connections.clear();
             for id in state.pending.keys() {
@@ -226,7 +257,19 @@ impl Shared {
             .set_native_waiting(AGENT.id, &sessions, crate::hooks::now_ms());
     }
     fn reconcile(&self, thread: &str, owner: &str, state_value: Value) {
+        self.reconcile_state(thread, owner, state_value, false);
+    }
+    fn reconcile_state(&self, thread: &str, owner: &str, state_value: Value, current_only: bool) {
+        let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
         if !self.active.load(Ordering::Acquire) {
+            return;
+        }
+        if current_only
+            && !state
+                .known
+                .get(thread)
+                .is_some_and(|known| known.owner == owner && known.state == state_value)
+        {
             return;
         }
         if let Ok(turns) = pending::turns(&state_value, true) {
@@ -246,11 +289,12 @@ impl Shared {
                 }
             }
         }
-        let parsed = pending::parse(&state_value, thread, owner);
-        let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
-        if !self.active.load(Ordering::Acquire) {
-            return;
-        }
+        let parsed = pending::parse(&state_value, thread, owner).map(|mut items| {
+            if self.questions_only.load(Ordering::Acquire) {
+                items.retain(|item| item.question.is_some());
+            }
+            items
+        });
         state.known.insert(
             thread.into(),
             ThreadState {
@@ -380,6 +424,9 @@ impl Shared {
         }
     }
     fn resolve(&self, item: &Pending, decision: &Value) -> Result<(), ReplyFailure> {
+        if item.question.is_none() && self.questions_only.load(Ordering::Acquire) {
+            return Err(ReplyFailure::Cancelled);
+        }
         let (response, method, state_value) = {
             let state = self.state.lock().unwrap_or_else(|p| p.into_inner());
             let known = state.known.get(&item.thread).ok_or(IpcError::Unavailable)?;
@@ -400,11 +447,12 @@ impl Shared {
         if response.is_null() {
             return Err(ReplyFailure::Cancelled);
         }
-        let mut connection =
-            DesktopIpc::connect(&self.data.join("ipc/ipc.sock"), Duration::from_secs(3))?;
+        let mut connection = DesktopIpc::connect(&self.endpoint, Duration::from_secs(3))?;
         {
             let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
-            if !self.active.load(Ordering::Acquire) {
+            if !self.active.load(Ordering::Acquire)
+                || (item.question.is_none() && self.questions_only.load(Ordering::Acquire))
+            {
                 return Err(ReplyFailure::Cancelled);
             }
             state
@@ -456,6 +504,9 @@ impl Shared {
         if !self.active.load(Ordering::Acquire) {
             return Err(ReplyFailure::Cancelled);
         }
+        if item.question.is_none() && self.questions_only.load(Ordering::Acquire) {
+            return Err(ReplyFailure::Cancelled);
+        }
         let mut wrote = false;
         let receipt = connection
             .request(
@@ -484,29 +535,36 @@ impl Shared {
                     }
                 }
             })?;
-        if receipt["handledByClientId"] != item.owner || receipt["result"]["method"] != method {
-            return Err(ReplyFailure::Uncertain(l10n::text(
-                "Codex Desktop 的回复与请求不匹配",
-                "Desktop reply identity did not match",
-            )));
-        }
-        if method == pending::ELICITATION_METHOD {
-            if receipt["result"]["result"]["ok"] != true {
-                return Err(ReplyFailure::Uncertain(l10n::text(
-                    "Codex Desktop 没有确认这个审批",
-                    "Desktop did not confirm this approval",
-                )));
-            }
-        } else if receipt["result"]["result"]["result"]["turnId"]
-            != item.turn_id.as_deref().unwrap_or("")
-        {
-            return Err(ReplyFailure::Uncertain(l10n::text(
-                "Codex Desktop 没有确认对应的提问轮次",
-                "Desktop did not confirm the exact question turn",
-            )));
-        }
-        Ok(())
+        confirm_receipt(item, method, &receipt)
     }
+}
+
+fn confirm_receipt(item: &Pending, method: &str, receipt: &Value) -> Result<(), ReplyFailure> {
+    // The router stamps method/owner on the response envelope. The Desktop
+    // follower handler has already checked its inner method and unwrapped
+    // that inner response before the router returns it to this connection.
+    if receipt["handledByClientId"] != item.owner || receipt["method"] != method {
+        return Err(ReplyFailure::Uncertain(l10n::text(
+            "Codex Desktop 的回复与请求不匹配",
+            "Desktop reply identity did not match",
+        )));
+    }
+    if method == pending::ELICITATION_METHOD {
+        if receipt["result"]["ok"] != true {
+            return Err(ReplyFailure::Uncertain(l10n::text(
+                "Codex Desktop 没有确认这个审批",
+                "Desktop did not confirm this approval",
+            )));
+        }
+    } else if item.turn_id.as_deref().is_none_or(str::is_empty)
+        || receipt["result"]["result"]["turnId"] != item.turn_id.as_deref().unwrap_or("")
+    {
+        return Err(ReplyFailure::Uncertain(l10n::text(
+            "Codex Desktop 没有确认对应的提问轮次",
+            "Desktop did not confirm the exact question turn",
+        )));
+    }
+    Ok(())
 }
 enum ReplyFailure {
     Failed(String),

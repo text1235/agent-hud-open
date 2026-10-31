@@ -219,6 +219,10 @@ fn workspace_uri(cwd: Option<&str>) -> Option<String> {
     Some(url.into())
 }
 pub(super) fn open(home: &Path, id: &str, cwd: Option<&str>) -> Result<bool, String> {
+    #[cfg(windows)]
+    if !super::uuid(id) {
+        return Ok(false);
+    }
     if !crate::os::ACTIVATES_APPS {
         return Err(l10n::text(
             "此系统暂不支持打开 Antigravity 会话",
@@ -257,4 +261,47 @@ pub(super) fn open(home: &Path, id: &str, cwd: Option<&str>) -> Result<bool, Str
         return Ok(false);
     }
     Ok(crate::os::activate_app(APP))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    const CONVERSATION: &str = "0f311b20-ab1c-446d-95a1-8e0ec14149c7";
+
+    fn page(id: &str, path: &str) -> Page {
+        serde_json::from_value(json!({
+            "id": id, "type": "page", "url": format!("https://127.0.0.1:1234{path}"),
+            "webSocketDebuggerUrl": format!("ws://127.0.0.1:9222/devtools/page/{id}")
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn exact_conversation_wins_over_an_unrelated_window() {
+        let pages = [
+            page("other", "/c/another"),
+            page("correct", &format!("/c/{CONVERSATION}")),
+        ];
+        let found = destination(CONVERSATION, &pages, 9222).unwrap();
+        assert_eq!(found.id, "correct");
+        assert_eq!(found.url.path(), format!("/c/{CONVERSATION}"));
+    }
+
+    #[test]
+    fn ambiguous_windows_and_foreign_destinations_are_not_opened() {
+        let pages = [page("one", "/"), page("two", "/")];
+        assert!(destination(CONVERSATION, &pages, 9222).is_none());
+        let mut foreign = page("one", "/");
+        foreign.url = "https://example.com/".into();
+        assert!(destination(CONVERSATION, &[foreign], 9222).is_none());
+        assert!(destination(CONVERSATION, &[page("one", "/")], 9999).is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn malformed_conversation_never_opens_or_activates_an_app() {
+        for id in ["", "../other", "https://example.com", "not-a-uuid"] {
+            assert!(!open(Path::new("."), id, None).unwrap());
+        }
+    }
 }

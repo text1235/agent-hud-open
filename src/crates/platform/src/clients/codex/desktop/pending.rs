@@ -213,10 +213,20 @@ pub(super) fn parse(state: &Value, thread: &str, owner: &str) -> Result<Vec<Pend
         };
         let items = turn["items"].as_array().map(Vec::as_slice).unwrap_or(&[]);
         let answered = items.iter().flat_map(answered_ids).collect::<HashSet<_>>();
-        for item in items {
-            if item["type"] != "agentMessage" {
-                continue;
-            }
+        // An asynchronous follow-up supersedes the earlier question batch in
+        // this HUD. Select it before checking replies: after the newest batch
+        // is answered, never fall back to an older unanswered test/prompt.
+        for item in items
+            .iter()
+            .rev()
+            .filter(|item| {
+                item["type"] == "agentMessage"
+                    && item["questions"]
+                        .as_array()
+                        .is_some_and(|questions| !questions.is_empty())
+            })
+            .take(1)
+        {
             let Some(source) = text(&item["id"]) else {
                 continue;
             };

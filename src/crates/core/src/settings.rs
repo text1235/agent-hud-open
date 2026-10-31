@@ -7,6 +7,10 @@ impl crate::AgentHudCore {
         self.settings["clientHooks"] == true
     }
 
+    pub fn codex_desktop_questions_enabled(&self) -> bool {
+        self.settings["codexDesktopQuestions"] == true
+    }
+
     pub fn antigravity_cli_settings(&self) -> Vec<PathBuf> {
         self.settings["antigravityCliSettings"]
             .as_array()
@@ -126,6 +130,10 @@ impl crate::AgentHudCore {
                     })
                 }) => {}
             "language" if value.as_str().is_some_and(|s| s.len() <= 32) => {}
+            "hudScreenId"
+                if value
+                    .as_str()
+                    .is_some_and(|id| id.len() <= 1024 && !id.contains('\0')) => {}
             "animations"
             | "showMenuBarIcon"
             | "appearanceFollowsScreen"
@@ -133,8 +141,10 @@ impl crate::AgentHudCore {
             | "claudeAnswers"
             | "readCopilotQuota"
             | "clientHooks"
+            | "codexDesktopQuestions"
             | "launchAtLogin"
             | "hudVisible"
+            | "hudPrimaryOnly"
                 if value.is_boolean() => {}
             "approvalWaitMinutes"
                 if value

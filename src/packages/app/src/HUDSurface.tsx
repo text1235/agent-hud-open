@@ -15,6 +15,7 @@ import type {
 } from "@agent-hud/hud/model";
 import type { Direction } from "@agent-hud/hud/bots/mark-director";
 import type { Snapshot, NativeMethod } from "./lib/types";
+import { singleAlertDisplay } from "./lib/alert-display";
 import type {
   NativeHUDGeometry,
   NativeHUDMonitor,
@@ -563,7 +564,12 @@ export default function NativeHUDSurface({
     !monitors ||
     (monitors.find((m) => m.screenId === screenId)?.primary ??
       monitors[0]?.screenId === screenId);
+  const alertOwner =
+    isTauri() && monitors
+      ? singleAlertDisplay(screenId, monitors, snapshot.settings)
+      : undefined;
   const underPointer = (() => {
+    if (alertOwner !== undefined) return alertOwner;
     if (!isTauri() || !geometry || !monitors || monitors.length <= 1)
       return true;
     const isPrimary =
@@ -615,7 +621,9 @@ export default function NativeHUDSurface({
     : undefined;
   return (
     <HUDScene
-      snapshot={snapshot}
+      snapshot={
+        alertOwner === false ? { ...snapshot, approvals: [] } : snapshot
+      }
       config={shownConfig}
       dragPreview={dragPreview}
       dragEndSequence={dragEndSequence}

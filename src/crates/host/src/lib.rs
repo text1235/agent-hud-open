@@ -556,10 +556,30 @@ async fn native_request(
         let mut params=params;
         // The demo never reaches outside its own folder: no login item, no
         // client's hooks.
-        if method=="set_setting" && app.state::<AppState>().demo && matches!(params["key"].as_str(),Some("launchAtLogin"|"clientHooks")) {
+        if method=="set_setting" && app.state::<AppState>().demo && matches!(params["key"].as_str(),Some("launchAtLogin"|"clientHooks"|"codexDesktopQuestions")) {
             return Err(agent_hud_runtime::l10n::text("演示模式不会更改这项设置。","The demo leaves this setting alone."));
         }
         if method=="set_setting" {if let Some(value)=app.state::<system::System>().set_setting(params["key"].as_str().ok_or("Setting key is required")?,&params["value"])? {params["value"]=value;}}
+        if method=="set_setting" && params["key"]=="codexDesktopQuestions" {
+            let enabled=params["value"].as_bool().ok_or("codexDesktopQuestions must be a boolean")?;
+            let _action=hook_actions.lock().map_err(|_|"Hook action owner unavailable")?;
+            if stopped.load(Ordering::Acquire){return Err("The application is stopping".into());}
+            let previous={
+                let mut hooks=hooks.lock().map_err(|_|"Hook service unavailable")?;
+                let previous=hooks.desktop_questions_enabled();
+                hooks.configure_desktop_questions(enabled)?;previous
+            };
+            let result=match backend.lock(){
+                Ok(mut backend)=>backend.request(&app,&method,params),
+                Err(_)=>Err("Runtime lock is unavailable".into())
+            };
+            if result.is_err(){
+                if let Ok(mut hooks)=hooks.lock(){
+                    if hooks.configure_desktop_questions(previous).is_err(){return Err("The Desktop question setting failed and its previous state could not be restored".into());}
+                }
+            }
+            return result;
+        }
         if method=="set_setting" && params["key"]=="clientHooks" {
             let enabled=params["value"].as_bool().ok_or("clientHooks must be a boolean")?;
             let _action=hook_actions.lock().map_err(|_|"Hook action owner unavailable")?;
@@ -969,6 +989,7 @@ pub fn run_with_options(
                 if let Some(path) = &options.canonical_executable {
                     runtime.delegate_hook_owner(path.clone())?;
                 }
+                runtime.configure_desktop_questions()?;
                 let launch_at_login = runtime.launch_at_login_enabled();
                 let data = agent_hud_runtime::local_tools_directory()?;
                 let service = Service::start(

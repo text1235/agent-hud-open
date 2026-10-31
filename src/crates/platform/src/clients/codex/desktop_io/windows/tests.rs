@@ -204,3 +204,137 @@ fn oversized_frame_is_rejected_before_reading_its_body() {
     drop(connection);
     worker.join().unwrap();
 }
+
+#[test]
+fn cancellation_interrupts_a_partial_reply_and_keeps_the_write_marker() {
+    let (partial, waiting) = mpsc::channel();
+    let (path, server) = serve(|mut pipe| async move {
+        read_message(&mut pipe).await;
+        pipe.write_all(&10u32.to_le_bytes()).await.unwrap();
+        pipe.write_all(b"{").await.unwrap();
+        partial.send(()).unwrap();
+        let _ = pipe.read(&mut [0]).await;
+    });
+    let mut connection = DesktopIpc::connect(&path, Duration::from_secs(30)).unwrap();
+    let shutdown = connection.shutdown_handle().unwrap();
+    let reader = thread::spawn(move || {
+        let mut wrote = false;
+        let result = connection.request(
+            "mutation",
+            1,
+            "client",
+            Some("owner"),
+            json!({}),
+            Some(&mut || wrote = true),
+        );
+        (result, wrote)
+    });
+    waiting.recv_timeout(Duration::from_secs(3)).unwrap();
+    let stopped = Instant::now();
+    shutdown.shutdown().unwrap();
+    let (result, wrote) = reader.join().unwrap();
+    assert_eq!(result, Err(IpcError::Unavailable));
+    assert!(
+        wrote,
+        "a cancelled reply cannot turn an accepted write into a retry"
+    );
+    assert!(stopped.elapsed() < Duration::from_secs(1));
+    server.join().unwrap();
+}
+
+#[test]
+fn cancellation_wakes_readiness_and_remains_set_after_renew() {
+    let (path, server) = serve(|mut pipe| async move {
+        let _ = pipe.read(&mut [0]).await;
+    });
+    let mut connection = DesktopIpc::connect(&path, Duration::from_secs(30)).unwrap();
+    let shutdown = connection.shutdown_handle().unwrap();
+    let (started, waiting) = mpsc::channel();
+    let reader = thread::spawn(move || {
+        started.send(()).unwrap();
+        let result = connection.wait_for_message(Duration::from_secs(30));
+        connection.renew(Duration::from_secs(30));
+        let after_renew = connection.receive();
+        (result, after_renew)
+    });
+    waiting.recv_timeout(Duration::from_secs(3)).unwrap();
+    let stopped = Instant::now();
+    shutdown.shutdown().unwrap();
+    let (result, after_renew) = reader.join().unwrap();
+    assert_eq!(result, Err(IpcError::Unavailable));
+    assert_eq!(after_renew, Err(IpcError::Unavailable));
+    assert!(stopped.elapsed() < Duration::from_secs(1));
+    server.join().unwrap();
+}
+
+#[test]
+fn cancellation_before_post_does_not_report_a_write() {
+    let (path, server) = serve(|mut pipe| async move {
+        assert_eq!(pipe.read(&mut [0]).await.unwrap(), 0);
+    });
+    let mut connection = DesktopIpc::connect(&path, Duration::from_secs(3)).unwrap();
+    connection.shutdown_handle().unwrap().shutdown().unwrap();
+    let mut wrote = false;
+    assert_eq!(
+        connection.post_with_write(json!({"mutation":true}), Some(&mut || wrote = true)),
+        Err(IpcError::Unavailable)
+    );
+    assert!(!wrote);
+    drop(connection);
+    server.join().unwrap();
+}
+
+#[test]
+fn readiness_after_an_exact_frame_read_does_not_block_the_answer_loop() {
+    let (release, released) = tokio::sync::oneshot::channel();
+    let (path, server) = serve(|mut pipe| async move {
+        fragmented_message(&mut pipe, json!({"ready":true})).await;
+        let _ = released.await;
+    });
+    let mut connection = DesktopIpc::connect(&path, Duration::from_secs(3)).unwrap();
+    assert_eq!(connection.receive().unwrap(), json!({"ready":true}));
+    assert_eq!(
+        connection.wait_for_message(Duration::from_millis(50)),
+        Ok(false)
+    );
+    release.send(()).unwrap();
+    drop(connection);
+    server.join().unwrap();
+}
+
+#[test]
+fn cancellation_interrupts_continuous_writes_without_a_reader() {
+    let (release, released) = tokio::sync::oneshot::channel();
+    let (path, server) = serve(|pipe| async move {
+        let _ = released.await;
+        drop(pipe);
+    });
+    let mut connection = DesktopIpc::connect(&path, Duration::from_secs(30)).unwrap();
+    let shutdown = connection.shutdown_handle().unwrap();
+    let (wrote, waiting) = mpsc::channel();
+    let writer = thread::spawn(move || {
+        let payload = json!({"payload":"x".repeat(1024 * 1024)});
+        let mut first = true;
+        loop {
+            let result = connection.post_with_write(
+                payload.clone(),
+                Some(&mut || {
+                    if first {
+                        wrote.send(()).unwrap();
+                        first = false;
+                    }
+                }),
+            );
+            if result.is_err() {
+                break result;
+            }
+        }
+    });
+    waiting.recv_timeout(Duration::from_secs(3)).unwrap();
+    let stopped = Instant::now();
+    shutdown.shutdown().unwrap();
+    assert_eq!(writer.join().unwrap(), Err(IpcError::Unavailable));
+    assert!(stopped.elapsed() < Duration::from_secs(1));
+    release.send(()).unwrap();
+    server.join().unwrap();
+}

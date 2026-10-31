@@ -231,6 +231,30 @@ pub(crate) struct Planner {
     configured: HashMap<String, String>,
 }
 
+fn display_visible(monitor: &HudMonitor, settings: &Value, selected: Option<&str>) -> bool {
+    settings["hudVisible"] != false
+        && if selected.is_some() {
+            selected == Some(monitor.screen_id.as_str())
+        } else {
+            settings["hudPrimaryOnly"] != true || monitor.primary
+        }
+}
+
+fn selected_screen<'a>(
+    monitors: impl Iterator<Item = &'a HudMonitor> + Clone,
+    settings: &Value,
+) -> Option<&'a str> {
+    let requested = settings["hudScreenId"]
+        .as_str()
+        .filter(|id| !id.is_empty())?;
+    monitors
+        .clone()
+        .find(|monitor| monitor.screen_id == requested)
+        .or_else(|| monitors.clone().find(|monitor| monitor.primary))
+        .or_else(|| monitors.clone().next())
+        .map(|monitor| monitor.screen_id.as_str())
+}
+
 impl Planner {
     /// Measures the displays again; returns them when they changed. The owners
     /// of disconnected screens are ended first.
@@ -293,16 +317,27 @@ impl Planner {
         snapshot: Option<&Value>,
         now_ms: i64,
     ) {
-        let visible = snapshot.is_none_or(|snapshot| snapshot["settings"]["hudVisible"] != false);
+        let settings = snapshot
+            .map(|snapshot| &snapshot["settings"])
+            .unwrap_or(&Value::Null);
+        let selected = selected_screen(self.displays.iter().map(|display| &display.info), settings);
         for display in &self.displays {
-            let config = plan(display, view, snapshot, visible, now_ms);
+            let config = plan(
+                display,
+                view,
+                snapshot,
+                display_visible(&display.info, settings, selected),
+                now_ms,
+            );
             let id = display.info.screen_id.clone();
             let Ok(signature) =
                 serde_json::to_string(&(&config, display.info.bounds, display.info.scale_factor))
             else {
                 continue;
             };
-            if self.configured.get(&id) == Some(&signature) {
+            if self.configured.get(&id) == Some(&signature)
+                && native_placement_current(app, display, &config)
+            {
                 continue;
             }
             match configure_display(app, config, display.clone()) {
@@ -315,9 +350,167 @@ impl Planner {
     }
 }
 
+/// Windows can move a tool window when a monitor sleeps without changing its
+/// settings or the eventual monitor catalogue. Recheck the native frame before
+/// trusting the cached plan, so configure also refreshes input coordinates.
+fn native_placement_current(app: &tauri::AppHandle, display: &Display, config: &HudConfig) -> bool {
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (app, display, config);
+        true
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use tauri::Manager;
+        // A user drag owns placement until drop; the saved plan must not pull it back.
+        let dragging = app
+            .try_state::<super::HudWindows>()
+            .and_then(|windows| {
+                let owner = windows
+                    .0
+                    .lock()
+                    .ok()?
+                    .get(&display.info.screen_id)
+                    .cloned()?;
+                let dragging = owner.state.lock().ok()?.drag.is_some();
+                Some(dragging)
+            })
+            .unwrap_or(false);
+        if dragging {
+            return true;
+        }
+        let Some(window) = app.get_webview_window(&display.info.window_label) else {
+            return !config.visible;
+        };
+        let visible = window.is_visible().unwrap_or(false);
+        let expected = super::edge_frame(display.info.bounds, display.info.scale_factor, config);
+        let actual = window
+            .outer_position()
+            .ok()
+            .zip(window.outer_size().ok())
+            .map(|(p, s)| super::Rect {
+                x: p.x,
+                y: p.y,
+                width: s.width,
+                height: s.height,
+            });
+        placement_matches(config.visible, visible, expected, actual)
+    }
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn placement_matches(
+    wanted_visible: bool,
+    visible: bool,
+    expected: super::Rect,
+    actual: Option<super::Rect>,
+) -> bool {
+    if wanted_visible != visible {
+        return false;
+    }
+    if !wanted_visible {
+        return true;
+    }
+    actual.is_some_and(|actual| {
+        i64::from(actual.x).abs_diff(i64::from(expected.x)) <= 1
+            && i64::from(actual.y).abs_diff(i64::from(expected.y)) <= 1
+            && actual.width.abs_diff(expected.width) <= 1
+            && actual.height.abs_diff(expected.height) <= 1
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unchanged_plan_detects_os_move_resize_or_hidden_window_after_unlock() {
+        let saved = super::super::Rect {
+            x: -940,
+            y: 143,
+            width: 752,
+            height: 864,
+        };
+        assert!(placement_matches(true, true, saved, Some(saved)));
+        assert!(!placement_matches(
+            true,
+            true,
+            saved,
+            Some(super::super::Rect { x: 0, ..saved })
+        ));
+        assert!(!placement_matches(
+            true,
+            true,
+            saved,
+            Some(super::super::Rect {
+                width: 940,
+                ..saved
+            })
+        ));
+        assert!(!placement_matches(true, false, saved, Some(saved)));
+        assert!(!placement_matches(true, true, saved, None));
+        assert!(placement_matches(false, false, saved, None));
+        assert!(!placement_matches(false, true, saved, Some(saved)));
+    }
+
+    fn monitor(id: &str, x: i32, y: i32, width: u32, height: u32, primary: bool) -> HudMonitor {
+        let bounds = super::super::Rect {
+            x,
+            y,
+            width,
+            height,
+        };
+        HudMonitor {
+            screen_id: id.into(),
+            window_label: id.into(),
+            index: 0,
+            runtime_id: id.into(),
+            persistent_id: None,
+            name: None,
+            primary,
+            bounds,
+            work_area: bounds,
+            scale_factor: 1.0,
+            notch: None,
+            notch_coordinate_space: "global-logical-top-left",
+        }
+    }
+
+    #[test]
+    fn manual_display_choice_is_single_and_falls_back_when_unplugged() {
+        let monitors = [
+            monitor("main", 0, 0, 1920, 1080, true),
+            monitor("left", -2560, 0, 2560, 1440, false),
+        ];
+        let mut settings = json!({"hudScreenId":"left","hudPrimaryOnly":true});
+        assert_eq!(selected_screen(monitors.iter(), &settings), Some("left"));
+        let selected = selected_screen(monitors.iter(), &settings);
+        assert_eq!(
+            monitors
+                .iter()
+                .filter(|monitor| display_visible(monitor, &settings, selected))
+                .count(),
+            1
+        );
+        assert_eq!(
+            selected_screen(monitors[..1].iter(), &settings),
+            Some("main")
+        );
+        settings["hudScreenId"] = json!("main");
+        assert_eq!(selected_screen(monitors.iter(), &settings), Some("main"));
+        settings["hudVisible"] = json!(false);
+        assert!(monitors
+            .iter()
+            .all(|monitor| !display_visible(monitor, &settings, Some("main"))));
+        settings["hudScreenId"] = json!("");
+        assert_eq!(selected_screen(monitors.iter(), &settings), None);
+        settings["hudScreenId"] = json!("missing");
+        assert_eq!(
+            selected_screen(monitors[1..].iter(), &settings),
+            Some("left")
+        );
+        assert_eq!(selected_screen(std::iter::empty(), &settings), None);
+    }
 
     fn view(screen: Value, layout: Value) -> Value {
         json!({"store": {"screens": {"a": screen}, "screenDefaults": {}}, "layouts": {"a": layout}, "sharedLayout": {}})

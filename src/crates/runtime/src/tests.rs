@@ -49,6 +49,52 @@ fn read(path: &Path) -> Value {
 }
 
 #[test]
+fn desktop_questions_preference_is_explicit_persisted_and_does_not_install_hooks() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut runtime = isolated(temp.path());
+    assert!(!runtime.core.codex_desktop_questions_enabled());
+    for value in [json!(null), json!("true"), json!(1)] {
+        assert!(runtime
+            .request(
+                "set_setting",
+                json!({"key":"codexDesktopQuestions","value":value})
+            )
+            .is_err());
+    }
+    runtime
+        .request(
+            "set_setting",
+            json!({"key":"codexDesktopQuestions","value":true}),
+        )
+        .unwrap();
+    assert!(runtime.core.codex_desktop_questions_enabled());
+    assert!(!runtime.core.client_hooks_enabled());
+    assert!(!runtime.hooks_handle().lock().unwrap().is_listening());
+    assert!(!temp.path().join("home/.codex/hooks.json").exists());
+    drop(runtime);
+    let restored = isolated(temp.path());
+    assert!(restored.core.codex_desktop_questions_enabled());
+    assert!(!restored.core.client_hooks_enabled());
+}
+
+#[test]
+fn demo_never_starts_desktop_questions_even_with_saved_preference() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut runtime = Runtime::demo(temp.path().join("demo"), None).unwrap();
+    runtime
+        .request(
+            "set_setting",
+            json!({"key":"codexDesktopQuestions","value":true}),
+        )
+        .unwrap();
+    runtime.configure_desktop_questions().unwrap();
+    let handle = runtime.hooks_handle();
+    let hooks = handle.lock().unwrap();
+    assert!(!hooks.desktop_questions_enabled());
+    assert!(!hooks.is_listening());
+}
+
+#[test]
 fn antigravity_cli_rejects_invalid_lists_and_missing_owners_without_file_changes() {
     let temp = tempfile::tempdir().unwrap();
     let mut runtime = isolated(temp.path());
