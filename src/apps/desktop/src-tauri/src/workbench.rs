@@ -15,7 +15,7 @@ use std::{
 use tauri::Manager;
 
 const ENDPOINT: &str = "http://127.0.0.1:18500/api";
-const MODEL: &str = "gemini-4-argon-high";
+const MODEL: &str = "auto";
 
 #[derive(Clone, PartialEq, Eq)]
 struct Connection {
