@@ -35,6 +35,7 @@ pub mod projects;
 pub mod replies;
 pub mod requests;
 mod session_breakdown;
+mod session_navigation;
 mod session_usage;
 mod sessions;
 mod settings;

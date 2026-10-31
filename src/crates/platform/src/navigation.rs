@@ -80,6 +80,17 @@ fn uuid(value: &str) -> bool {
 pub fn session_url(target: &Value) -> Option<String> {
     let id = target["id"].as_str()?;
     match target["kind"].as_str()? {
+        "hermes-session" | "hermesSession"
+            if id.len() <= 200
+                && id.contains('_')
+                && id
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-')) =>
+        {
+            let mut url = reqwest::Url::parse("hermes://open").ok()?;
+            url.path_segments_mut().ok()?.push(id);
+            Some(url.into())
+        }
         // As Open does, the link also launches the Codex app when it is closed.
         "codex-thread" | "codexThread"
             if uuid(id)
@@ -125,5 +136,27 @@ pub fn session_url(target: &Value) -> Option<String> {
             Some(url.into())
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod hermes_tests {
+    use super::*;
+    use serde_json::json;
+    #[test]
+    fn only_typed_session_ids_become_hermes_deep_links() {
+        assert_eq!(
+            session_url(&json!({"kind":"hermes-session","id":"20260101_000000_example"})),
+            Some("hermes://open/20260101_000000_example".into())
+        );
+        for id in [
+            "settings",
+            "../settings",
+            "x_?command=delete",
+            "x_/other",
+            "x_\\other",
+        ] {
+            assert!(session_url(&json!({"kind":"hermes-session","id":id})).is_none());
+        }
     }
 }

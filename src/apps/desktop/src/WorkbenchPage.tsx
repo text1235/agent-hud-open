@@ -201,8 +201,8 @@ function WorkbenchPage({ request }: { request: Request }) {
       <section>
         <h3>手动派工</h3>
         <p>
-          点击后会真实执行。Antigravity 使用 Gemini 4 Argon
-          High；成果写入本项目的协作办公区。这里的派工需另行交给 Codex
+          点击后会真实执行。Antigravity 根据实时额度自动选模，余额不高于 10%
+          时切换；成果写入本项目的协作办公区。这里的派工需另行交给 Codex
           独立验收。
         </p>
         <label>

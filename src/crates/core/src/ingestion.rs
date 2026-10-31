@@ -1310,6 +1310,11 @@ impl LogSession for Log {
                     json!({"kind":"antigravity-conversation","id":id,"cwd":self.cwd});
             }
         }
+        if self.source == "hermes" {
+            if let Some(target) = crate::session_navigation::hermes_target(&self.id) {
+                session["navigationTarget"] = target;
+            }
+        }
         // A demo session has a way back, so its reply card shows "Return to
         // session" as a real one does; the demo runtime goes nowhere with it.
         if crate::demo::is_demo(&self.path) {

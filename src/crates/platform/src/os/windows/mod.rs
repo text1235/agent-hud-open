@@ -157,6 +157,38 @@ pub(crate) fn source_roots(home: &Path) -> Vec<agent_hud_core::SourceRoot> {
 }
 
 pub(crate) fn open_session_url(url: &str) -> Result<(), String> {
+    if url.starts_with("hermes://open/") {
+        // Match the existing Z-drive Desktop instance, whose singleton lock
+        // follows its user-data directory. A bare protocol launch would use
+        // Electron's default directory and could create another instance.
+        let home = std::env::var_os("HERMES_HOME")
+            .map(PathBuf::from)
+            .ok_or("Hermes data directory is unavailable")?;
+        let root = std::env::var_os("HERMES_DESKTOP_HERMES_ROOT")
+            .map(PathBuf::from)
+            .or_else(|| home.parent().map(|p| p.join("agent")))
+            .ok_or("Hermes installation directory is unavailable")?;
+        let executable = root.join("apps/desktop/release/win-unpacked/Hermes.exe");
+        if !executable.is_file() {
+            return Err("Hermes desktop application is unavailable".into());
+        }
+        let data = std::env::var_os("HERMES_DESKTOP_USER_DATA_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join("desktop"));
+        let mut command = Command::new(executable);
+        configure_command(&mut command);
+        return command
+            .arg(url)
+            .env("HERMES_HOME", &home)
+            .env("HERMES_DESKTOP_USER_DATA_DIR", data)
+            .env("HERMES_DESKTOP_HERMES_ROOT", root)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map(|_| ())
+            .map_err(|_| "Could not open Hermes session".into());
+    }
     use std::{
         ffi::{c_void, OsStr},
         os::windows::ffi::OsStrExt,

@@ -284,6 +284,11 @@ impl LogHead {
                     json!({"kind":"antigravity-conversation","id":id,"cwd":self.cwd})
             }
         }
+        if self.source == "hermes" {
+            if let Some(target) = crate::session_navigation::hermes_target(&self.id) {
+                session["navigationTarget"] = target;
+            }
+        }
         session
     }
 
