@@ -77,7 +77,8 @@ fn missing_agents_is_created_and_disabled_without_touching_other_files() {
     let instructions =
         fs::read_to_string(project.0.join(".agent-hud/automatic-dispatch.md")).unwrap();
     assert!(!instructions.contains("{{PROJECT_ROOT}}"));
-    assert!(instructions.contains("gemini-4-argon-high"));
+    assert!(instructions.contains("model=auto"));
+    assert!(instructions.contains("10%"));
     enable(&project.0, false).unwrap();
     assert_eq!(fs::read_to_string(project.0.join("AGENTS.md")).unwrap(), "");
     assert_eq!(fs::read_to_string(keep).unwrap(), "unrelated");

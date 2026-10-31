@@ -117,7 +117,7 @@ fn first_observed_submission_flies_once_before_running_and_delivery() {
 }
 
 #[test]
-fn antigravity_submission_uses_the_selected_root_fixed_model_and_idempotency_key() {
+fn antigravity_submission_uses_the_selected_root_auto_model_and_idempotency_key() {
     let scratch = Scratch::new();
     let selected = Connection {
         root: scratch.0.clone(),
@@ -127,7 +127,7 @@ fn antigravity_submission_uses_the_selected_root_fixed_model_and_idempotency_key
     let arguments = submission(&selected, &input).unwrap();
     assert_eq!(arguments["workspace"], json!(selected.root));
     assert_eq!(arguments["project_root"], json!(selected.root));
-    assert_eq!(arguments["model"], MODEL);
+    assert_eq!(arguments["model"], "auto");
     assert_eq!(arguments["request_key"], "hud-test-1");
     let mut invalid = input;
     invalid["request_key"] = json!("../other");
