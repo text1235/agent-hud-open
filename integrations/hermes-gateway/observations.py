@@ -1,11 +1,14 @@
 """Read-only execution evidence for this gateway's exact task, never another chat."""
+import os
 import sqlite3
 import time
 from contextlib import closing
 from pathlib import Path
 
 
-def observe(task_id, database=Path(r'D:\ExampleAssistant\data\state.db'), session_id=None):
+def observe(task_id, database=None, session_id=None):
+    if database is None:
+        database=Path(os.environ.get('HERMES_HOME',str(Path.home()/'.hermes')))/'state.db'
     if not database.exists():
         return {'state': 'unknown', 'reason': 'session database unavailable'}
     try:

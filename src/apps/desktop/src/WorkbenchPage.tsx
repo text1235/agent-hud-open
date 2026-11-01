@@ -44,7 +44,7 @@ function WorkbenchPage({ request }: { request: Request }) {
   currentRequest.current = request;
   const [state, setState] = useState<WorkbenchState>({});
   const [projectRoot, setProjectRoot] = useState("");
-  const [workbenchRoot, setWorkbenchRoot] = useState("D:\\ExampleAssistant\\workbench");
+  const [workbenchRoot, setWorkbenchRoot] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [executor, setExecutor] = useState("");

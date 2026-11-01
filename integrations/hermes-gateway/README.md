@@ -4,7 +4,7 @@
 
 原生流程：核对官方桌面会合记录与进程 → 核对/创建业务项目 → 在 `协作办公区/大肥鱼/hud-<request_key>` 创建明确 cwd 的原生会话 → 核对项目、cwd 和配置的模型 → 持久保存会话映射 → 唯一发送任务。
 
-本项目派工优先使用 Mercury 3 私有网关（provider=`example-provider`、model=`mercury-3`），`reasoning_effort=high` 通过官方 `session.create` 参数显式传入。实际连接由本机 `state/native-desktop.json` 配置；凭据仍由 Hermes 保存，不进入仓库。
+本项目派工优先使用 已配置的模型通道（provider=`example-provider`、model=`example-model`），`reasoning_effort=high` 通过官方 `session.create` 参数显式传入。实际连接由本机 `state/native-desktop.json` 配置；凭据仍由 Hermes 保存，不进入仓库。
 
 传输中断后只重新读取同一持久会话。已保存提交映射而回执未知时不重发提示词。未提交模型前的准备错误记为 failed；失败任务只允许记录 rejected。完成与验收保持分离。
 

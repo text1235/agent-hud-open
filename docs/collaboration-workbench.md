@@ -39,7 +39,7 @@ mapping, then sends once. Its office is under
 safe directory names). Other projects retain their original transport. The
 adapter and reversible deployment sources are in `integrations/hermes-gateway`.
 This project's Hermes preference is Mercury 3 private gateway
-(`example-provider`, model `mercury-3`), with `reasoning_effort=high` explicitly
+(`example-provider`, model `example-model`), with `reasoning_effort=high` explicitly
 passed to the native session creation API. Credentials remain in Hermes.
 Task details show the bound office only when native binding evidence exists.
 

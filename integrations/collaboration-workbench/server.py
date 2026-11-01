@@ -33,7 +33,8 @@ def fields(task,**values):
         DB.commit()
 
 def hermes(name,**arguments):
-    token=Path(r'D:\ExampleAssistant\project-gateway\state\gateway.token').read_text().strip()
+    gateway_root=Path(os.environ.get('HERMES_GATEWAY_ROOT',str(ROOT.parent/'project-gateway')))
+    token=(gateway_root/'state'/'gateway.token').read_text().strip()
     req=urllib.request.Request('http://127.0.0.1:18493',json.dumps(dict(name=name,arguments=arguments)).encode(),
         {'Authorization':'Bearer '+token,'Content-Type':'application/json'})
     with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req,timeout=15) as r:

@@ -22,3 +22,10 @@ playwright-report/
 coverage/
 blob-report/
 .swiftpm/
+
+# Machine-specific helpers and private collaboration policy remain local.
+/src/tooling/build-windows-local.ps1
+/integrations/hermes-gateway/deploy.ps1
+/docs/integrations/workbench-policy.zh-CN.md
+/.env
+/.env.*
